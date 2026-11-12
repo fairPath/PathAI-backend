@@ -68,6 +68,12 @@ If both commands succeed, AWS access is correctly configured.
 4. Environment Configuration
    refer to .env.example -> create .env and fill out fields
 
+   Resume Analysis calls the AI service (`fairPath-ai-service`), so `.env` also needs:
+   - `AI_SERVICE_URL`, e.g. `http://localhost:8000`
+   - `AI_INTERNAL_TOKEN`, which must equal `INTERNAL_TOKEN` in the AI service's environment
+
+   Spring refuses to boot without them. The frontend no longer needs either value.
+
 5. Running the Backend Locally
 
 Option A (Recommended): Use provided scripts
