@@ -20,9 +20,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+    private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private final HandlerExceptionResolver handlerExceptionResolver;
     private final JwtService jwtService;
@@ -83,7 +86,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             writeAuthError(response, "TOKEN_INVALID", "JWT token is invalid");
             return;
         } catch (Exception exception) {
-            handlerExceptionResolver.resolveException(request, response, null, exception);
+            var resolved = handlerExceptionResolver.resolveException(request, response, null, exception);
+            if (resolved == null && !response.isCommitted()) {
+                logger.error("Unhandled failure while processing an authenticated request", exception);
+                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Request processing failed");
+            }
         }
     }
 

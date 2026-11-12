@@ -51,4 +51,9 @@ public class Resume {
         createdAt = now;
         updatedAt = now;
     }
+
+    @PreUpdate
+    void preUpdate() {
+        updatedAt = Instant.now();
+    }
 }

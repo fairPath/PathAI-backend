@@ -1,11 +1,17 @@
 package com.job_search.fair_path.dataTransferObject;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import lombok.NoArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 
 @Getter
 @Setter
+@NoArgsConstructor
 public class JobResultDTO {
     private String jobId;
     private String title;
@@ -17,6 +23,15 @@ public class JobResultDTO {
     private Double salaryMin;
     private Double salaryMax;
     private Boolean saved;
+    private UUID resumeId;
+    private Map<String, Object> resumeSnapshot;
+    private BigDecimal matchScore;
+    private List<String> matchedSkills;
+    private List<String> missingSkills;
+    private String relevantExperience;
+    private List<String> otherGaps;
+    private String comparisonStatus;
+    private UUID comparisonRequestId;
 
     public JobResultDTO(String jobId, String title, String companyName, LocalDateTime dateCreated, String location,
             String redirectUrl,
