@@ -89,3 +89,17 @@ http://localhost:8080/ will be available
 
 S3 Access test:
 GET http://localhost:8080/api/aws/s3-test
+
+## Running tests
+
+```
+./gradlew test
+```
+
+Integration tests start a throwaway Postgres with Testcontainers, so a Docker daemon must be running (Docker Engine 25 or newer). They never read the local `.env` and never connect to Supabase.
+
+Colima/OrbStack users: Testcontainers looks for `/var/run/docker.sock`. If your socket lives elsewhere, set it once for your machine in `~/.testcontainers.properties`, for example:
+
+```
+docker.host=unix:///Users/<you>/.orbstack/run/docker.sock
+```
