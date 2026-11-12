@@ -105,6 +105,23 @@ class AnalysisTransitionsTest extends AnalysisTestSupport {
     }
 
     @Test
+    void malformedSuccessResponseFailsTheAnalysisInsteadOfLeavingItProcessing() throws Exception {
+        UUID id = insertAnalysis(Analysis.Status.PENDING);
+        aiService.stubFor(post(urlEqualTo("/resume")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("""
+                        { "correlation_id": "%s", "scores": null, "issues": [],
+                          "model": null, "pipeline_version": "0.1.0" }
+                        """.formatted(id))));
+
+        runner.run(requestFor(id));
+
+        pollLatest()
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.error_code").value("INTERNAL_ERROR"));
+    }
+
+    @Test
     void analyzeWithoutAnActiveResumeIsRejected() throws Exception {
         resume.setStatus(Resume.Status.PENDING); // uploaded but never confirmed
         resumeRepository.save(resume);

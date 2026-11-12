@@ -64,9 +64,7 @@ public class AnalysisRunner {
             response = aiClient.analyze(request);
         } catch (RuntimeException e) {
             log.warn("AI-service call failed correlation_id={} error={}", id, e.getClass().getSimpleName());
-            if (analysisRepository.failProcessing(id, GENERIC_FAILURE) == 0) {
-                log.warn("Late failure discarded correlation_id={}", id);
-            }
+            fail(id);
             return;
         }
 
@@ -76,20 +74,35 @@ public class AnalysisRunner {
             return;
         }
 
-        int rows = analysisRepository.complete(id,
-                response.scores().formatting(), response.scores().parseability(),
-                response.scores().writing(), response.scores().overall(),
-                toJson(response), response.model(), response.pipelineVersion());
+        String issuesJson = issuesJson(response);
+        if (response.scores() == null || issuesJson == null) {
+            log.warn("AI-service response is missing its scores or issues correlation_id={}", id);
+            fail(id);
+            return;
+        }
+
+        int rows = analysisRepository.complete(id, response.scores(), issuesJson, response.model(),
+                response.pipelineVersion());
         if (rows == 0) {
             log.warn("Late result discarded correlation_id={}", id);
         }
     }
 
-    private String toJson(AnalyzeResponseDTO response) {
+    private void fail(UUID id) {
+        if (analysisRepository.failProcessing(id, GENERIC_FAILURE) == 0) {
+            log.warn("Late failure discarded correlation_id={}", id);
+        }
+    }
+
+    /** The Issues as JSON, or null when the response has none to store. */
+    private String issuesJson(AnalyzeResponseDTO response) {
+        if (response.issues() == null) {
+            return null;
+        }
         try {
             return objectMapper.writeValueAsString(response.issues());
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Could not serialise Issues", e);
+            return null;
         }
     }
 }

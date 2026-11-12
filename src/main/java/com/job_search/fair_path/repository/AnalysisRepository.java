@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.job_search.fair_path.dataTransferObject.analysis.ScoresDTO;
 import com.job_search.fair_path.entity.Analysis;
 import com.job_search.fair_path.entity.Analysis.Status;
 
@@ -31,10 +32,9 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
     }
 
     /** PROCESSING → COMPLETED, storing the result in the same guarded update. */
-    default int complete(UUID id, int formatting, int parseability, int writing, int overall,
-            String issuesJson, String model, String pipelineVersion) {
-        return storeResult(id, formatting, parseability, writing, overall, issuesJson, model, pipelineVersion,
-                Status.PROCESSING, Status.COMPLETED);
+    default int complete(UUID id, ScoresDTO scores, String issuesJson, String model, String pipelineVersion) {
+        return storeResult(id, scores.formatting(), scores.parseability(), scores.writing(), scores.overall(),
+                issuesJson, model, pipelineVersion, Status.PROCESSING, Status.COMPLETED);
     }
 
     /** PROCESSING → FAILED with an error code. */
