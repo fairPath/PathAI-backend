@@ -20,9 +20,9 @@ public class AiServiceClientConfig {
 
     @Bean
     public RestClient aiServiceRestClient(RestClient.Builder builder, AiServiceProperties properties) {
-        Assert.hasText(properties.baseUrl(), "fairpath.ai-service.base-url (AI_SERVICE_URL) must be set");
+        Assert.hasText(properties.baseUrl(), "fairpath.ai-service.base-url (FAIRPATH_AI_SERVICE_URL) must be set");
         Assert.hasText(properties.internalToken(),
-                "fairpath.ai-service.internal-token (AI_INTERNAL_TOKEN) must be set");
+                "fairpath.ai-service.internal-token (FAIRPATH_AI_INTERNAL_TOKEN) must be set");
 
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.connectTimeout());
