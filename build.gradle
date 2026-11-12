@@ -28,7 +28,8 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:postgresql'
-    testImplementation 'org.springframework.security:spring-security-test'
+    // shaded jar: avoids clashing with the Jetty version Spring Boot manages
+    testImplementation 'org.wiremock:wiremock-standalone:3.13.2'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     compileOnly 'org.projectlombok:lombok'

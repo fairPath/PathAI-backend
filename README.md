@@ -161,3 +161,17 @@ API supplies a snippet of up to 500 characters, which is preserved in full.
 Development uses an empty database with Hibernate schema updates enabled. No data
 migration is required. The UI consumes one `jobDescription` string, and the AI service
 accepts the complete description without the old 756-character limit.
+
+## Running tests
+
+```
+./gradlew test
+```
+
+Integration tests start a throwaway Postgres with Testcontainers, so a Docker daemon must be running (Docker Engine 25 or newer). They never read the local `.env` and never connect to Supabase.
+
+Colima/OrbStack users: Testcontainers looks for `/var/run/docker.sock`. If your socket lives elsewhere, set it once for your machine in `~/.testcontainers.properties`, for example:
+
+```
+docker.host=unix:///Users/<you>/.orbstack/run/docker.sock
+```

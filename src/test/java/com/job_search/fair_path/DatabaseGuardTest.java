@@ -8,17 +8,11 @@ import javax.sql.DataSource;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
-import org.springframework.test.context.ActiveProfiles;
 
-import com.job_search.fair_path.support.PostgresTestConfig;
+import com.job_search.fair_path.support.IntegrationTestBase;
 
-@SpringBootTest
-@Import(PostgresTestConfig.class)
-@ActiveProfiles("test")
-class DatabaseGuardTest {
+class DatabaseGuardTest extends IntegrationTestBase {
 
     @Autowired
     private DataSource dataSource;
@@ -41,7 +35,8 @@ class DatabaseGuardTest {
     @Test
     void localEnvFileIsNotLoaded() {
         assertThat(environment.containsProperty("DB_URL"))
-                .as("DB_URL (defined only in the local .env) is visible to the test context")
+                .as("DB_URL is visible to the test context: either the local .env import is not skipped "
+                        + "under the test profile, or DB_URL is exported in your shell environment")
                 .isFalse();
     }
 }
