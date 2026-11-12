@@ -78,7 +78,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authToken);
                 }
             }
-            filterChain.doFilter(request, response);
         } catch (ExpiredJwtException expiredJwtException) {
             writeAuthError(response, "TOKEN_EXPIRED", "JWT token has expired");
             return;
@@ -91,7 +90,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 logger.error("Unhandled failure while processing an authenticated request", exception);
                 response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Request processing failed");
             }
+            return;
         }
+        // Application errors belong to Spring MVC, not to JWT authentication.
+        filterChain.doFilter(request, response);
     }
 
 }
