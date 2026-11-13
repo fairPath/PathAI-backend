@@ -13,6 +13,8 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletResponse;
 
 @Configuration
 @EnableWebSecurity
@@ -36,8 +38,14 @@ public class SecurityConfiguration {
                                 .csrf(csrf -> csrf.disable())
                                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                                 .authorizeHttpRequests(authorize -> authorize
+                                                .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                                                 .requestMatchers("/auth/**").permitAll()
                                                 .anyRequest().authenticated())
+                                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, error) -> {
+                                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                                        response.setContentType("application/json");
+                                        response.getWriter().write("{\"code\":\"AUTHENTICATION_REQUIRED\",\"message\":\"Please sign in\"}");
+                                }))
                                 .sessionManagement(session -> session
                                                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                                 .authenticationProvider(authenticationProvider)

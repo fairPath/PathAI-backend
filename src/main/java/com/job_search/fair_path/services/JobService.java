@@ -4,9 +4,9 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -62,9 +62,9 @@ public class JobService {
         List<JobResultDTO> savedJobs = savedJobService.getSavedJobsForUser(authentication);
         List<JobResultDTO> jobs = new ArrayList<>();
         ObjectMapper mapper = new ObjectMapper();
-        Set<String> savedJobIdsSet = new HashSet<>();
+        Map<String, JobResultDTO> savedJobsById = new HashMap<>();
         for (JobResultDTO job : savedJobs) {
-            savedJobIdsSet.add(job.getJobId());
+            savedJobsById.put(job.getJobId(), job);
         }
         try {
             JsonNode rootNode = mapper.readTree(apiResponse);
@@ -87,12 +87,24 @@ public class JobService {
                     Double jobSalaryMax = node.get("salary_max").asDouble();
                     Boolean saved = false;
 
-                    if (savedJobIdsSet.contains(jobId)) {
+                    JobResultDTO savedJob = savedJobsById.get(jobId);
+                    if (savedJob != null) {
                         saved = true;
                     }
 
                     JobResultDTO job = new JobResultDTO(jobId, title, companyName, dateCreated, location, redirectUrl,
                             jobDescription, jobSalaryMin, jobSalaryMax, saved);
+                    if (savedJob != null) {
+                        job.setResumeId(savedJob.getResumeId());
+                        job.setResumeSnapshot(savedJob.getResumeSnapshot());
+                        job.setComparisonStatus(savedJob.getComparisonStatus());
+                        job.setComparisonRequestId(savedJob.getComparisonRequestId());
+                        job.setMatchScore(savedJob.getMatchScore());
+                        job.setMatchedSkills(savedJob.getMatchedSkills());
+                        job.setMissingSkills(savedJob.getMissingSkills());
+                        job.setRelevantExperience(savedJob.getRelevantExperience());
+                        job.setOtherGaps(savedJob.getOtherGaps());
+                    }
                     jobs.add(job);
                 }
             }
