@@ -23,8 +23,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 public class ResumeController {
     private final ResumeService resumeService;
 
-    public ResumeController(ResumeService resumerService) {
-        this.resumeService = resumerService;
+    public ResumeController(ResumeService resumeService) {
+        this.resumeService = resumeService;
     }
 
     @PostMapping("/presign-url")
@@ -37,7 +37,7 @@ public class ResumeController {
                 UUID userId = user.getId();
                 ResumePresignUrlResponseDTO presignedUploadDTO = resumeService.createPresignUploadUrl(userId, filename);
                 return ResponseEntity.ok(presignedUploadDTO);
-            } catch (Error e) {
+            } catch (Exception e) {
                 return ResponseEntity.badRequest().build();
             }
         }
@@ -46,10 +46,14 @@ public class ResumeController {
 
     @PostMapping("/confirm")
     public ResponseEntity<?> confirmUpload(@RequestBody ResumeConfirmRequestDTO request, Authentication authentication) {
-        User user = (User) authentication.getPrincipal();
-        UUID userId = user.getId();
-        resumeService.confirmUpload(request.getResumeId(), userId);
-        return ResponseEntity.ok().build();
+        try {
+            User user = (User) authentication.getPrincipal();
+            UUID userId = user.getId();
+            resumeService.confirmUpload(request.getResumeId(), userId);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     @DeleteMapping("/delete")
