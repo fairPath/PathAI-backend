@@ -68,6 +68,12 @@ If both commands succeed, AWS access is correctly configured.
 4. Environment Configuration
    refer to .env.example -> create .env and fill out fields
 
+   Resume Analysis calls the AI service (`fairPath-ai-service`), so `.env` also needs:
+   - `FAIRPATH_AI_SERVICE_URL`, e.g. `http://localhost:8000`
+   - `FAIRPATH_AI_INTERNAL_TOKEN`, which must equal `INTERNAL_TOKEN` in the AI service's environment
+
+   Spring refuses to boot without them. These are the names the frontend used before analysis moved behind Spring; move the values from the frontend's env into this `.env`.
+
 5. Running the Backend Locally
 
 Option A (Recommended): Use provided scripts
@@ -118,8 +124,8 @@ COMPARISON_WORKER_ENABLED=true
 ```
 
 These variables used to be needed only in Next.js for comparison; Spring now needs them.
-Missing worker credentials leave jobs pending and emit a startup warning. A stopped
-backend resumes pending work on restart; an interrupted attempt becomes eligible after
+Comparison and Analyze share one AI-service client, so Spring will not start without
+both variables. A stopped backend resumes pending work on restart; an interrupted attempt becomes eligible after
 its lease expires. Failed attempts retry after 10 and 20 seconds, up to three attempts;
 the job then becomes `FAILED` and the UI offers manual retry. A retry creates a new
 request ID. Saving an unchanged pending/completed comparison reuses it. Unsave deletes
@@ -137,18 +143,11 @@ Snapshot copying still contributes to save latency; model inference no longer do
 
 ### Background comparison tests
 
-Run the worker and save-service unit tests with `./gradlew test`. The PostgreSQL queue
-integration tests are enabled only with an explicit disposable test database:
-
-```bash
-FAIRPATH_TEST_DB_URL=jdbc:postgresql://localhost:5432/fairpath_test \
-FAIRPATH_TEST_DB_USER=postgres FAIRPATH_TEST_DB_PASSWORD=<test-password> \
-./gradlew test --tests '*PostgresJobComparisonQueueTests'
-```
-
-They create/drop a random test schema and exercise concurrent claims, restart recovery,
-retry backoff, stale-result fencing, unsave/re-save, and final-attempt crashes. They never
-call the AI service or S3. Do not point test configuration at the application database.
+`./gradlew test` runs the worker and save-service unit tests and the PostgreSQL queue
+integration tests. The queue tests run on the throwaway Postgres container (see
+"Running tests" below), in a random schema they create and drop. They exercise
+concurrent claims, restart recovery, retry backoff, stale-result fencing,
+unsave/re-save, and final-attempt crashes. They never call the AI service or S3.
 
 
 ## Saved-job description storage
@@ -161,3 +160,17 @@ API supplies a snippet of up to 500 characters, which is preserved in full.
 Development uses an empty database with Hibernate schema updates enabled. No data
 migration is required. The UI consumes one `jobDescription` string, and the AI service
 accepts the complete description without the old 756-character limit.
+
+## Running tests
+
+```
+./gradlew test
+```
+
+Integration tests start a throwaway Postgres with Testcontainers, so a Docker daemon must be running (Docker Engine 25 or newer). They never read the local `.env` and never connect to Supabase.
+
+Colima/OrbStack users: Testcontainers looks for `/var/run/docker.sock`. If your socket lives elsewhere, set it once for your machine in `~/.testcontainers.properties`, for example:
+
+```
+docker.host=unix:///Users/<you>/.orbstack/run/docker.sock
+```

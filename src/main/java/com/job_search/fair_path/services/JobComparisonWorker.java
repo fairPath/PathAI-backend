@@ -16,14 +16,10 @@ public class JobComparisonWorker {
     public JobComparisonWorker(JobComparisonQueue queue, JobComparisonClient client) {
         this.queue = queue;
         this.client = client;
-        if (!client.isConfigured()) {
-            logger.warn("Comparison worker is waiting for FAIRPATH_AI_SERVICE_URL and FAIRPATH_AI_INTERNAL_TOKEN; queued jobs remain pending");
-        }
     }
 
     @Scheduled(fixedDelayString = "${fairpath.comparison-worker.poll-ms:1000}", initialDelayString = "5000")
     public void processNext() {
-        if (!client.isConfigured()) return;
         try {
             var task = queue.claim();
             if (task.isEmpty()) return;

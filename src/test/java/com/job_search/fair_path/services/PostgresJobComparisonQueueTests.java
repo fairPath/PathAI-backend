@@ -9,15 +9,18 @@ import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.jdbc.JdbcConnectionDetails;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.job_search.fair_path.support.IntegrationTestBase;
 
-/** Uses a separate random schema, never application rows. Point only at a disposable test database. */
-@EnabledIfEnvironmentVariable(named = "FAIRPATH_TEST_DB_URL", matches = ".+")
-class PostgresJobComparisonQueueTests {
+/** Runs on the shared Testcontainers Postgres, in a separate random schema, never application rows. */
+class PostgresJobComparisonQueueTests extends IntegrationTestBase {
+    @Autowired
+    private JdbcConnectionDetails connection;
     private JdbcTemplate admin;
     private JdbcTemplate jdbc;
     private JobComparisonQueue queue;
@@ -29,9 +32,9 @@ class PostgresJobComparisonQueueTests {
 
     @BeforeEach
     void setup() throws Exception {
-        String url = System.getenv("FAIRPATH_TEST_DB_URL");
-        String username = System.getenv().getOrDefault("FAIRPATH_TEST_DB_USER", "postgres");
-        String password = System.getenv().getOrDefault("FAIRPATH_TEST_DB_PASSWORD", "");
+        String url = connection.getJdbcUrl();
+        String username = connection.getUsername();
+        String password = connection.getPassword();
         var source = new DriverManagerDataSource(url, username, password);
         admin = new JdbcTemplate(source);
         schema = "comparison_test_" + UUID.randomUUID().toString().replace("-", "");

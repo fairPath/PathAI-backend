@@ -16,14 +16,7 @@ class JobComparisonWorkerTests {
             UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "job", "private-key", "description", 1);
 
     @Test
-    void missingConfigurationDoesNotConsumeDurableWork() {
-        new JobComparisonWorker(queue, client).processNext();
-        verifyNoInteractions(queue);
-    }
-
-    @Test
     void successfulComparisonIsPersistedWithItsClaim() throws Exception {
-        when(client.isConfigured()).thenReturn(true);
         when(queue.claim()).thenReturn(Optional.of(task));
         var result = new JobComparisonClient.Result(85, List.of("Java"), List.of(), "Experience", List.of());
         when(client.compare(task)).thenReturn(result);
@@ -37,7 +30,6 @@ class JobComparisonWorkerTests {
 
     @Test
     void failedInferenceIsRetriedWithoutDeletingTheSavedJob() throws Exception {
-        when(client.isConfigured()).thenReturn(true);
         when(queue.claim()).thenReturn(Optional.of(task));
         when(client.compare(task)).thenThrow(new IllegalStateException("Provider unavailable"));
 
@@ -49,7 +41,6 @@ class JobComparisonWorkerTests {
 
     @Test
     void databaseOutageDoesNotStopFutureWorkerPolls() {
-        when(client.isConfigured()).thenReturn(true);
         when(queue.claim()).thenThrow(new IllegalStateException("Database unavailable"))
                 .thenReturn(Optional.empty());
         var worker = new JobComparisonWorker(queue, client);
