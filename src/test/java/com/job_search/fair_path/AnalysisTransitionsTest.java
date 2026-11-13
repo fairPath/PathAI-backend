@@ -122,6 +122,26 @@ class AnalysisTransitionsTest extends AnalysisTestSupport {
     }
 
     @Test
+    void databaseErrorWhileStoringTheResultFailsTheAnalysis() throws Exception {
+        UUID id = insertAnalysis(Analysis.Status.PENDING);
+        // Postgres jsonb rejects a NUL character, so storing this result throws.
+        String issueWithNul = MISSING_CONTACT_ISSUE_JSON.replace("\"snippet\": null", "\"snippet\": \"a\\u0000b\"");
+        aiService.stubFor(post(urlEqualTo("/resume")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("""
+                        { "correlation_id": "%s",
+                          "scores": { "formatting": 0, "parseability": 100, "writing": 100, "overall": 67 },
+                          "issues": [ %s ], "model": null, "pipeline_version": "0.1.0" }
+                        """.formatted(id, issueWithNul))));
+
+        runner.run(requestFor(id));
+
+        pollLatest()
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.error_code").value("INTERNAL_ERROR"));
+    }
+
+    @Test
     void analyzeWithoutAnActiveResumeIsRejected() throws Exception {
         resume.setStatus(Resume.Status.PENDING); // uploaded but never confirmed
         resumeRepository.save(resume);

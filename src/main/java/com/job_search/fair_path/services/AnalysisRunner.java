@@ -51,9 +51,29 @@ public class AnalysisRunner {
         run(event.request());
     }
 
+    /**
+     * Never throws: nothing above this method would catch an exception on the
+     * async thread, so anything unexpected (e.g. a database error while
+     * storing) fails the row on a best-effort basis instead of stranding it.
+     */
     public void run(AnalyzeRequestDTO request) {
         UUID id = request.correlationId();
+        try {
+            process(id, request);
+        } catch (RuntimeException e) {
+            // Class name only: exception messages can carry row data.
+            log.error("Analysis runner failed correlation_id={} error={}", id, e.getClass().getSimpleName());
+            try {
+                fail(id);
+            } catch (RuntimeException again) {
+                // e.g. the database is down; the sweep times the row out later.
+                log.error("Could not mark the Analysis failed correlation_id={} error={}", id,
+                        again.getClass().getSimpleName());
+            }
+        }
+    }
 
+    private void process(UUID id, AnalyzeRequestDTO request) {
         if (analysisRepository.claim(id, Instant.now()) == 0) {
             log.warn("Stale claim, not calling the AI service correlation_id={}", id);
             return;
