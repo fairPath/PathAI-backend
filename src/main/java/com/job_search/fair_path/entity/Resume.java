@@ -52,6 +52,7 @@ public class Resume {
         updatedAt = now;
     }
 
+    // A re-upload reuses this row, so updatedAt is what marks a replaced file.
     @PreUpdate
     void preUpdate() {
         updatedAt = Instant.now();
