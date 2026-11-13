@@ -122,6 +122,37 @@ class AnalysisTransitionsTest extends AnalysisTestSupport {
     }
 
     @Test
+    void responseWithAMissingSubScoreIsNotStoredAsCompleted() throws Exception {
+        assertMalformedScoresFail("""
+                { "formatting": 0, "parseability": 100, "overall": 67 }
+                """);
+    }
+
+    @Test
+    void responseWithAnOutOfRangeScoreIsNotStoredAsCompleted() throws Exception {
+        assertMalformedScoresFail("""
+                { "formatting": 0, "parseability": 100, "writing": 140, "overall": 67 }
+                """);
+    }
+
+    private void assertMalformedScoresFail(String scoresJson) throws Exception {
+        UUID id = insertAnalysis(Analysis.Status.PENDING);
+        aiService.stubFor(post(urlEqualTo("/resume")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("""
+                        { "correlation_id": "%s", "scores": %s, "issues": [],
+                          "model": null, "pipeline_version": "0.1.0" }
+                        """.formatted(id, scoresJson))));
+
+        runner.run(requestFor(id));
+
+        pollLatest()
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.error_code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.scores").value(nullValue()));
+    }
+
+    @Test
     void databaseErrorWhileStoringTheResultFailsTheAnalysis() throws Exception {
         UUID id = insertAnalysis(Analysis.Status.PENDING);
         // Postgres jsonb rejects a NUL character, so storing this result throws.

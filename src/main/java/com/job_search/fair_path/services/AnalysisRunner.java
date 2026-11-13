@@ -1,7 +1,9 @@
 package com.job_search.fair_path.services;
 
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +16,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.job_search.fair_path.dataTransferObject.analysis.AnalyzeRequestDTO;
 import com.job_search.fair_path.dataTransferObject.analysis.AnalyzeResponseDTO;
+import com.job_search.fair_path.dataTransferObject.analysis.ScoresDTO;
 import com.job_search.fair_path.repository.AnalysisRepository;
 
 /**
@@ -28,6 +31,8 @@ public class AnalysisRunner {
 
     /** Walking skeleton: one generic code for every AI-service failure. */
     static final String GENERIC_FAILURE = "INTERNAL_ERROR";
+
+    private static final Set<String> SEVERITIES = Set.of("low", "medium", "high");
 
     private static final Logger log = LoggerFactory.getLogger(AnalysisRunner.class);
 
@@ -94,9 +99,9 @@ public class AnalysisRunner {
             return;
         }
 
-        String issuesJson = issuesJson(response);
-        if (response.scores() == null || issuesJson == null) {
-            log.warn("AI-service response is missing its scores or issues correlation_id={}", id);
+        String issuesJson = isWellFormed(response) ? issuesJson(response) : null;
+        if (issuesJson == null) {
+            log.warn("AI-service response is malformed, not stored correlation_id={}", id);
             fail(id);
             return;
         }
@@ -112,6 +117,24 @@ public class AnalysisRunner {
         if (analysisRepository.failProcessing(id, GENERIC_FAILURE) == 0) {
             log.warn("Late failure discarded correlation_id={}", id);
         }
+    }
+
+    /**
+     * Every Score present and within 0–100, and every Issue carrying the
+     * fields the results view relies on. Snippet and Line fields may be null.
+     */
+    static boolean isWellFormed(AnalyzeResponseDTO response) {
+        ScoresDTO scores = response.scores();
+        if (scores == null || response.issues() == null) {
+            return false;
+        }
+        boolean scoresValid = Stream.of(scores.formatting(), scores.parseability(), scores.writing(),
+                scores.overall()).allMatch(score -> score != null && score >= 0 && score <= 100);
+        boolean issuesValid = response.issues().stream().allMatch(issue -> issue != null
+                && issue.issueId() != null && issue.issueType() != null && issue.category() != null
+                && SEVERITIES.contains(issue.severity())
+                && issue.description() != null && issue.suggestion() != null);
+        return scoresValid && issuesValid;
     }
 
     /** The Issues as JSON, or null when the response has none to store. */
