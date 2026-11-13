@@ -1,37 +1,28 @@
 package com.job_search.fair_path.services;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+/** Thin job-comparison client over the shared aiServiceRestClient (URL, token and timeouts live there). */
 @Component
 public class JobComparisonClient {
     private final ObjectMapper mapper;
-    private final String baseUrl;
-    private final String token;
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+    private final RestClient aiServiceRestClient;
 
     public JobComparisonClient(ObjectMapper mapper,
-            @Value("${fairpath.ai-service.url}") String baseUrl,
-            @Value("${fairpath.ai-service.internal-token}") String token) {
+            @Qualifier("aiServiceRestClient") RestClient aiServiceRestClient) {
         this.mapper = mapper;
-        this.baseUrl = baseUrl.replaceAll("/+$", "");
-        this.token = token;
-    }
-
-    public boolean isConfigured() {
-        return !baseUrl.isBlank() && !token.isBlank();
+        this.aiServiceRestClient = aiServiceRestClient;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -52,21 +43,19 @@ public class JobComparisonClient {
     }
 
     public Result compare(JobComparisonQueue.Task task) throws Exception {
-        var request = HttpRequest.newBuilder(URI.create(baseUrl + "/job-comparison"))
-                .timeout(Duration.ofSeconds(120))
-                .header("Content-Type", "application/json")
-                .header("X-Internal-Token", token)
-                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(Map.of(
-                        "job_id", task.jobId(), "s3_key", task.s3Key(), "job_description", task.description()))))
-                .build();
-        var response = http.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            // The response body may contain private data; never include it in worker logs.
-            throw new IllegalStateException("AI service returned HTTP " + response.statusCode());
-        }
+        String body = aiServiceRestClient.post()
+                .uri("/job-comparison")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("job_id", task.jobId(), "s3_key", task.s3Key(), "job_description", task.description()))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, (request, response) -> {
+                    // The response body may contain private data; never include it in worker logs.
+                    throw new IllegalStateException("AI service returned HTTP " + response.getStatusCode().value());
+                })
+                .body(String.class);
         Result result = mapper.readerFor(Result.class)
                 .without(com.fasterxml.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT)
-                .readValue(response.body());
+                .readValue(body);
         if (result == null) throw new IllegalArgumentException("AI returned an empty comparison result");
         result.validate();
         return result;
