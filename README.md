@@ -126,8 +126,7 @@ request ID. Saving an unchanged pending/completed comparison reuses it. Unsave d
 the row (and queue entry) and attempts to remove its snapshot after commit.
 
 With the existing `spring.jpa.hibernate.ddl-auto=update`, restarting Spring adds the
-queue columns and index. For environments managed with SQL migrations, apply
-`scripts/migrations/20261111_background_comparisons.sql` before starting the new worker.
+queue columns and index.
 Deploy backend and frontend together: `/saved-jobs/prepare` now returns a saved-job DTO,
 and `/saved-jobs/status?jobId=...` reads statuses restricted to the authenticated user.
 The old browser-driven `/complete` and `/fail` endpoints are removed; workers persist
@@ -159,16 +158,6 @@ The API returns it unchanged as `jobDescription`; the worker sends that same ful
 to the AI service. There is no application truncation or splitting. Adzuna's public search
 API supplies a snippet of up to 500 characters, which is preserved in full.
 
-On startup, `SavedJobDescriptionMigration` runs the idempotent SQL in
-`src/main/resources/db/migration/20261112_single_job_description.sql` before Hibernate and
-the worker access the table. It supports the original four-column layout (where the
-base column duplicated the start of segments 1-3), the consecutive three-column layout,
-and an existing single-column layout. It first widens the base column to `TEXT`, combines
-all stored segments in order without duplicating the beginning, and drops the extra
-columns. Repeated startup does not concatenate text again. Text already truncated by an
-older save cannot be recovered from the database.
-
-Restart all backend instances together so old workers cannot query the removed columns.
-The UI already consumes one `jobDescription` string and requires no changes. The AI
-service's updated schema accepts the complete description without the old 756-character
-limit. Startup runs only the single-column migration above.
+Development uses an empty database with Hibernate schema updates enabled. No data
+migration is required. The UI consumes one `jobDescription` string, and the AI service
+accepts the complete description without the old 756-character limit.

@@ -2,8 +2,6 @@ package com.job_search.fair_path.services;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -44,16 +42,15 @@ class PostgresJobComparisonQueueTests {
         jdbc.execute("""
                 CREATE TABLE saved_jobs (
                     id uuid PRIMARY KEY, job_id text, comparison_status text,
+                    comparison_request_id uuid, comparison_lease_token uuid,
+                    comparison_lease_until timestamptz, comparison_attempts integer,
+                    comparison_next_attempt_at timestamptz,
                     resume_snapshot jsonb, job_description text, match_score numeric,
                     matched_skills jsonb, missing_skills jsonb, relevant_experience text,
                     other_gaps jsonb, created_at timestamptz DEFAULT CURRENT_TIMESTAMP,
                     updated_at timestamptz DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
-        String migration = Files.readString(Path.of("scripts/migrations/20261111_background_comparisons.sql"));
-        for (String sql : migration.split(";")) {
-            if (!sql.isBlank()) jdbc.execute(sql);
-        }
         queue = new JobComparisonQueue(jdbc, new ObjectMapper());
         id = UUID.randomUUID();
         requestId = UUID.randomUUID();
@@ -94,69 +91,6 @@ class PostgresJobComparisonQueueTests {
         String full = "A".repeat(1500) + " final requirement";
         jdbc.update("UPDATE saved_jobs SET job_description = ?", full);
         assertEquals(full, queue.claim().orElseThrow().description());
-    }
-
-    private void migrateDescription() throws Exception {
-        jdbc.execute(Files.readString(Path.of("src/main/resources/db/migration/20261112_single_job_description.sql")));
-    }
-
-    private void addConsecutiveColumns() {
-        jdbc.execute("ALTER TABLE saved_jobs ALTER COLUMN job_description TYPE varchar(255)");
-        jdbc.execute("ALTER TABLE saved_jobs ADD COLUMN job_description1 varchar(252), ADD COLUMN job_description2 text");
-    }
-
-    private void assertSingleTextColumn() {
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM information_schema.columns WHERE table_schema = ? AND table_name = 'saved_jobs' AND column_name IN ('job_description1', 'job_description2', 'job_description3')", Integer.class, schema));
-        assertEquals("text", jdbc.queryForObject("SELECT data_type FROM information_schema.columns WHERE table_schema = ? AND table_name = 'saved_jobs' AND column_name = 'job_description'", String.class, schema));
-    }
-
-    @Test
-    void migrationPreservesOldSegmentsDropsDuplicateAndIsIdempotent() throws Exception {
-        addConsecutiveColumns();
-        jdbc.execute("ALTER TABLE saved_jobs ADD COLUMN job_description3 text");
-        String first = "A".repeat(251) + "\uD83D\uDE00";
-        String second = "B".repeat(252);
-        String third = "C".repeat(252);
-        String full = first + second + third;
-        jdbc.update("UPDATE saved_jobs SET job_description = ?, job_description1 = ?, job_description2 = ?, job_description3 = ?",
-                first + "...", first, second, third);
-        migrateDescription();
-        assertEquals(full, jdbc.queryForObject("SELECT job_description FROM saved_jobs", String.class));
-        assertSingleTextColumn();
-        migrateDescription();
-        assertEquals(full, queue.claim().orElseThrow().description());
-    }
-
-    @Test
-    void migrationPreservesConsecutiveSegmentsAndExpandsBaseBeforeCombining() throws Exception {
-        addConsecutiveColumns();
-        String first = "A".repeat(255);
-        String second = "B".repeat(252);
-        String remainder = "C".repeat(1500) + " end";
-        jdbc.update("UPDATE saved_jobs SET job_description = ?, job_description1 = ?, job_description2 = ?",
-                first, second, remainder);
-        migrateDescription();
-        assertSingleTextColumn();
-        assertEquals(first + second + remainder, queue.claim().orElseThrow().description());
-    }
-
-    @Test
-    void migrationPreservesLegacyBaseOnlyRows() throws Exception {
-        addConsecutiveColumns();
-        jdbc.execute("ALTER TABLE saved_jobs ADD COLUMN job_description3 text");
-        jdbc.update("UPDATE saved_jobs SET job_description = 'Legacy description'");
-        migrateDescription();
-        assertSingleTextColumn();
-        assertEquals("Legacy description", queue.claim().orElseThrow().description());
-    }
-
-    @Test
-    void migrationLeavesAnExistingSingleColumnValueUnchanged() throws Exception {
-        jdbc.update("UPDATE saved_jobs SET job_description = 'Already consolidated'");
-        migrateDescription();
-        migrateDescription();
-        assertSingleTextColumn();
-        assertEquals("Already consolidated", queue.claim().orElseThrow().description());
     }
 
     @Test
