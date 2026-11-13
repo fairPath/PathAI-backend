@@ -9,10 +9,6 @@ Read `RULES.md` from `fairPath/fairpath-rules` before starting any ticket or imp
 
 The rules repo is private. If neither works, ask the developer for access before writing code.
 
-## Tickets
-
-Tickets live in `fairPath/fairPath-planning`. Read one with `gh issue view <n> --repo fairPath/fairPath-planning --comments`; the newest comment wins.
-
 ## Done
 
 Done means `./gradlew test` passes. Integration tests run Postgres in Testcontainers, so start Docker first.
