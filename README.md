@@ -124,8 +124,8 @@ COMPARISON_WORKER_ENABLED=true
 ```
 
 These variables used to be needed only in Next.js for comparison; Spring now needs them.
-Missing worker credentials leave jobs pending and emit a startup warning. A stopped
-backend resumes pending work on restart; an interrupted attempt becomes eligible after
+Comparison and Analyze share one AI-service client, so Spring will not start without
+both variables. A stopped backend resumes pending work on restart; an interrupted attempt becomes eligible after
 its lease expires. Failed attempts retry after 10 and 20 seconds, up to three attempts;
 the job then becomes `FAILED` and the UI offers manual retry. A retry creates a new
 request ID. Saving an unchanged pending/completed comparison reuses it. Unsave deletes
@@ -143,18 +143,11 @@ Snapshot copying still contributes to save latency; model inference no longer do
 
 ### Background comparison tests
 
-Run the worker and save-service unit tests with `./gradlew test`. The PostgreSQL queue
-integration tests are enabled only with an explicit disposable test database:
-
-```bash
-FAIRPATH_TEST_DB_URL=jdbc:postgresql://localhost:5432/fairpath_test \
-FAIRPATH_TEST_DB_USER=postgres FAIRPATH_TEST_DB_PASSWORD=<test-password> \
-./gradlew test --tests '*PostgresJobComparisonQueueTests'
-```
-
-They create/drop a random test schema and exercise concurrent claims, restart recovery,
-retry backoff, stale-result fencing, unsave/re-save, and final-attempt crashes. They never
-call the AI service or S3. Do not point test configuration at the application database.
+`./gradlew test` runs the worker and save-service unit tests and the PostgreSQL queue
+integration tests. The queue tests run on the throwaway Postgres container (see
+"Running tests" below), in a random schema they create and drop. They exercise
+concurrent claims, restart recovery, retry backoff, stale-result fencing,
+unsave/re-save, and final-attempt crashes. They never call the AI service or S3.
 
 
 ## Saved-job description storage
