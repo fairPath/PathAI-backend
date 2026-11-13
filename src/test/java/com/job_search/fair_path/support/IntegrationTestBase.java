@@ -11,6 +11,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.jdbc.Sql;
+import org.springframework.test.context.jdbc.SqlMergeMode;
+import org.springframework.test.context.jdbc.SqlMergeMode.MergeMode;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 
@@ -27,6 +29,8 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 @AutoConfigureMockMvc
 @Import(PostgresTestConfig.class)
 @ActiveProfiles("test")
+// MERGE so a method-level @Sql runs after the reset instead of replacing it.
+@SqlMergeMode(MergeMode.MERGE)
 // Every test starts from empty application tables; see sql/reset.sql for why TRUNCATE.
 @Sql(scripts = "/sql/reset.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
 public abstract class IntegrationTestBase {
