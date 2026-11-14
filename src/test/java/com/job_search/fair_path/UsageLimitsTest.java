@@ -43,6 +43,7 @@ import com.job_search.fair_path.entity.Analysis;
 import com.job_search.fair_path.entity.Resume;
 import com.job_search.fair_path.repository.AnalysisRepository;
 import com.job_search.fair_path.services.AnalysisCompletion;
+import com.job_search.fair_path.services.AnalysisService;
 import com.job_search.fair_path.support.AnalysisTestSupport;
 import com.jayway.jsonpath.JsonPath;
 
@@ -124,6 +125,22 @@ class UsageLimitsTest extends AnalysisTestSupport {
         assertThatThrownBy(() -> insertAnalysis(Analysis.Status.PROCESSING))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .satisfies(e -> assertThat(constraintName(e)).isEqualToIgnoringCase(Analysis.ONE_IN_FLIGHT_INDEX));
+    }
+
+    @Test
+    void theServiceRecognisesTheIndexViolationByItsConstraintName() {
+        insertAnalysis(Analysis.Status.PENDING);
+
+        // The service maps a true race to ANALYSIS_IN_PROGRESS by this name. A name
+        // Hibernate reports differently would turn the race into a 500.
+        assertThatThrownBy(() -> insertAnalysis(Analysis.Status.PENDING))
+                .isInstanceOfSatisfying(DataIntegrityViolationException.class,
+                        e -> assertThat(AnalysisService.violatesOneInFlightIndex(e)).isTrue());
+    }
+
+    @Test
+    void anotherIntegrityViolationIsNotMistakenForTheIndex() {
+        assertThat(AnalysisService.violatesOneInFlightIndex(new DataIntegrityViolationException("other"))).isFalse();
     }
 
     @Test
@@ -219,9 +236,17 @@ class UsageLimitsTest extends AnalysisTestSupport {
     }
 
     @Test
+    void onlyACompletedAnalysisStartsTheCooldownNotAFailedOne() throws Exception {
+        insertUsageRecord("ANALYSIS_FAILED");
+        stubAiService(0);
+
+        analyze().andExpect(status().isAccepted());
+        awaitStatus("COMPLETED");
+    }
+
+    @Test
     void inProgressIsCheckedBeforeTheCooldown() throws Exception {
-        jdbc.update("insert into usage_record (id, user_id, kind, occurred_at) values (?, ?, 'ANALYSIS_COMPLETED', now())",
-                UUID.randomUUID(), user.getId());
+        insertUsageRecord("ANALYSIS_COMPLETED");
         insertAnalysis(Analysis.Status.PENDING);
 
         analyze().andExpect(status().isTooManyRequests())
@@ -270,6 +295,19 @@ class UsageLimitsTest extends AnalysisTestSupport {
         assertThat(usageCount("ANALYSIS_COMPLETED")).isEqualTo(1);
         assertThat(resumeRepository.findByUserId(user.getId()).orElseThrow().getStatus())
                 .isEqualTo(Resume.Status.ACTIVE);
+    }
+
+    @Test
+    void confirmingWhileAnAnalysisStartedAfterThePresignCheckIsRejectedAndDeletesNothing() throws Exception {
+        markResumeAsReplacementAwaitingConfirm();
+        insertAnalysis(Analysis.Status.PROCESSING); // Analyze won the race against presign
+
+        confirm().andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error_code").value("ANALYSIS_IN_PROGRESS"));
+
+        assertThat(analysisRepository.count()).isEqualTo(1);
+        assertThat(resumeRepository.findByUserId(user.getId()).orElseThrow().getStatus())
+                .isEqualTo(Resume.Status.PENDING);
     }
 
     @Test
@@ -350,8 +388,12 @@ class UsageLimitsTest extends AnalysisTestSupport {
     }
 
     private void insertUsageRecord() {
-        jdbc.update("insert into usage_record (id, user_id, kind, occurred_at) values (?, ?, 'ANALYSIS_COMPLETED', now())",
-                UUID.randomUUID(), user.getId());
+        insertUsageRecord("ANALYSIS_COMPLETED");
+    }
+
+    private void insertUsageRecord(String kind) {
+        jdbc.update("insert into usage_record (id, user_id, kind, occurred_at) values (?, ?, ?, now())",
+                UUID.randomUUID(), user.getId(), kind);
     }
 
     private UUID insertAnalysis(Analysis.Status status) {

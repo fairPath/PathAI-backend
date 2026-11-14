@@ -110,7 +110,8 @@ public class AnalysisService {
         return analysisRepository.findFirstByUserIdOrderByCreatedAtDesc(user.getId()).map(this::toStatus);
     }
 
-    private static boolean violatesOneInFlightIndex(DataIntegrityViolationException e) {
+    /** Whether this failed insert broke the one-in-flight index (matched by constraint name). */
+    public static boolean violatesOneInFlightIndex(DataIntegrityViolationException e) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof ConstraintViolationException violation
                     && Analysis.ONE_IN_FLIGHT_INDEX.equalsIgnoreCase(violation.getConstraintName())) {

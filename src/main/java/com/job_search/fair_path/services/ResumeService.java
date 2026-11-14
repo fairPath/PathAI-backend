@@ -1,7 +1,7 @@
 package com.job_search.fair_path.services;
 
+import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -29,15 +29,17 @@ public class ResumeService {
     private final String bucketName;
     private final ResumeRepository resumeRepository;
     private final AnalysisRepository analysisRepository;
+    private final Clock clock;
 
     public ResumeService(S3Presigner s3Presigner, S3Client s3Client, @Value("${aws.s3.bucket}") String bucketName,
-            ResumeRepository resumeRepository, AnalysisRepository analysisRepository) {
+            ResumeRepository resumeRepository, AnalysisRepository analysisRepository, Clock clock) {
 
         this.s3Presigner = s3Presigner;
         this.s3Client = s3Client;
         this.bucketName = bucketName;
         this.resumeRepository = resumeRepository;
         this.analysisRepository = analysisRepository;
+        this.clock = clock;
     }
 
     public ResumePresignUrlResponseDTO createPresignUploadUrl(UUID userId, String filename) {
@@ -142,11 +144,15 @@ public class ResumeService {
                 throw new IllegalStateException("Uploaded resume file is empty");
             }
             
+            // An Analyze that slipped in after the presign check is still running:
+            // deleting it would discard its result with no Usage record.
+            rejectWhileAnalysisInFlight(userId);
+
             // Guarded PENDING → ACTIVE. Only the call that really activates a new
             // file deletes the old Analyses; a duplicate confirm changes nothing,
             // so it cannot delete results made since. The Usage record is kept.
             int activated = resumeRepository.changeStatus(resume.getId(), userId, Resume.Status.PENDING,
-                    Resume.Status.ACTIVE, Instant.now());
+                    Resume.Status.ACTIVE, clock.instant());
             if (activated == 1) {
                 analysisRepository.deleteAllForUser(userId);
             }
