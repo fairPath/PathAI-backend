@@ -28,6 +28,7 @@ import com.job_search.fair_path.repository.UserRepository;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import com.job_search.fair_path.exceptions.SavedJobLimitExceededException;
 
 @Service
 public class SavedJobService {

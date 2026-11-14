@@ -17,7 +17,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.job_search.fair_path.config.AiServiceException;
+import com.job_search.fair_path.exceptions.AiServiceException;
 import com.job_search.fair_path.config.AiServiceProperties;
 import com.job_search.fair_path.dataTransferObject.analysis.AnalyzeRequestDTO;
 import com.job_search.fair_path.dataTransferObject.analysis.AnalyzeResponseDTO;

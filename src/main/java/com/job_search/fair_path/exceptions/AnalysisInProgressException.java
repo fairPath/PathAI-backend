@@ -1,4 +1,4 @@
-package com.job_search.fair_path.services;
+package com.job_search.fair_path.exceptions;
 
 /** The user already has an Analysis PENDING or PROCESSING. */
 public class AnalysisInProgressException extends RuntimeException {

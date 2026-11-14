@@ -1,4 +1,4 @@
-package com.job_search.fair_path.services;
+package com.job_search.fair_path.exceptions;
 
 public class SavedJobLimitExceededException extends RuntimeException {
     public SavedJobLimitExceededException(int limit) {

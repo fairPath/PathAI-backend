@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.core.Authentication;
 import org.springframework.http.ResponseEntity;
 import com.job_search.fair_path.services.SavedJobService;
-import com.job_search.fair_path.services.SavedJobLimitExceededException;
+import com.job_search.fair_path.exceptions.SavedJobLimitExceededException;
 import com.job_search.fair_path.dataTransferObject.JobResultDTO;
 
 @RestController

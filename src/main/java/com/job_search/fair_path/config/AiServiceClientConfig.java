@@ -14,6 +14,7 @@ import org.springframework.web.client.RestClient;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.job_search.fair_path.exceptions.AiServiceException;
 
 /**
  * The shared AI-service transport. It owns the base URL, the X-Internal-Token

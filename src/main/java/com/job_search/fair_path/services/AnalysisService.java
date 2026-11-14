@@ -28,6 +28,9 @@ import com.job_search.fair_path.entity.User;
 import com.job_search.fair_path.repository.AnalysisRepository;
 import com.job_search.fair_path.repository.ResumeRepository;
 import com.job_search.fair_path.repository.UsageRecordRepository;
+import com.job_search.fair_path.exceptions.NoActiveResumeException;
+import com.job_search.fair_path.exceptions.AnalysisInProgressException;
+import com.job_search.fair_path.exceptions.CooldownActiveException;
 
 /**
  * Handles the Analyze request and the status read. The AI-service call itself

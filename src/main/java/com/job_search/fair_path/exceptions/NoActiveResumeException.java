@@ -1,4 +1,4 @@
-package com.job_search.fair_path.services;
+package com.job_search.fair_path.exceptions;
 
 /** Analyze was requested but the user has no ACTIVE (upload-confirmed) Resume. */
 public class NoActiveResumeException extends RuntimeException {

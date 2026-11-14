@@ -1,4 +1,4 @@
-package com.job_search.fair_path.services;
+package com.job_search.fair_path.exceptions;
 
 import java.time.Instant;
 

@@ -13,7 +13,7 @@ import com.job_search.fair_path.dataTransferObject.analysis.AnalysisStatusDTO;
 import com.job_search.fair_path.dataTransferObject.analysis.ErrorEnvelopeDTO;
 import com.job_search.fair_path.entity.User;
 import com.job_search.fair_path.services.AnalysisService;
-import com.job_search.fair_path.services.NoActiveResumeException;
+import com.job_search.fair_path.exceptions.NoActiveResumeException;
 
 /** User-initiated Analysis of the user's Resume: 202 + polling. */
 @RestController

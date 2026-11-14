@@ -6,8 +6,8 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
 import com.job_search.fair_path.dataTransferObject.analysis.ErrorEnvelopeDTO;
-import com.job_search.fair_path.services.AnalysisInProgressException;
-import com.job_search.fair_path.services.CooldownActiveException;
+import com.job_search.fair_path.exceptions.AnalysisInProgressException;
+import com.job_search.fair_path.exceptions.CooldownActiveException;
 
 /**
  * Maps the Analysis limits to the shared envelope. Scoped to the two
