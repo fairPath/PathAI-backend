@@ -33,6 +33,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
               )
               from User u
               left join Resume r on r.userId = u.id
+                and r.status = com.job_search.fair_path.entity.Resume.Status.ACTIVE
               where u.id = :userId
             """)
     Optional<UserProfileDTO> getProfile(@Param("userId") UUID userId); // running custom query to get user profile by

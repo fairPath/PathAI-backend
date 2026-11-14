@@ -1,5 +1,8 @@
 package com.job_search.fair_path.services;
 
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -14,6 +17,8 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.job_search.fair_path.config.AiServiceException;
+import com.job_search.fair_path.config.AiServiceProperties;
 import com.job_search.fair_path.dataTransferObject.analysis.AnalyzeRequestDTO;
 import com.job_search.fair_path.dataTransferObject.analysis.AnalyzeResponseDTO;
 import com.job_search.fair_path.dataTransferObject.analysis.ScoresDTO;
@@ -39,12 +44,14 @@ public class AnalysisRunner {
     private final AnalysisRepository analysisRepository;
     private final ResumeAnalysisAiClient aiClient;
     private final ObjectMapper objectMapper;
+    private final AiServiceProperties properties;
 
     public AnalysisRunner(AnalysisRepository analysisRepository, ResumeAnalysisAiClient aiClient,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, AiServiceProperties properties) {
         this.analysisRepository = analysisRepository;
         this.aiClient = aiClient;
         this.objectMapper = objectMapper;
+        this.properties = properties;
     }
 
     // @Async: the request thread returns 202 without waiting, and the guarded
@@ -86,10 +93,18 @@ public class AnalysisRunner {
 
         AnalyzeResponseDTO response;
         try {
-            response = aiClient.analyze(request);
+            response = callWithOneRetry(id, request);
         } catch (RuntimeException e) {
-            log.warn("AI-service call failed correlation_id={} error={}", id, e.getClass().getSimpleName());
-            fail(id);
+            // The envelope belongs to another Analysis: leave the row, like a mismatched 200.
+            if (e instanceof AiServiceException ex && ex.correlationId() != null
+                    && !id.toString().equals(ex.correlationId())) {
+                log.error("AI-service error has a mismatched correlation_id, row left alone correlation_id={}", id);
+                return;
+            }
+            String errorCode = errorCodeFor(id, e);
+            log.warn("AI-service call failed correlation_id={} error={} error_code={}", id,
+                    e.getClass().getSimpleName(), errorCode);
+            fail(id, errorCode);
             return;
         }
 
@@ -114,9 +129,76 @@ public class AnalysisRunner {
     }
 
     private void fail(UUID id) {
-        if (analysisRepository.failProcessing(id, GENERIC_FAILURE) == 0) {
+        fail(id, GENERIC_FAILURE);
+    }
+
+    private void fail(UUID id, String errorCode) {
+        if (analysisRepository.failProcessing(id, errorCode) == 0) {
             log.warn("Late failure discarded correlation_id={}", id);
         }
+    }
+
+    /**
+     * One automatic retry, only for failures that say the AI service wasn't
+     * reachable (a refused connection, or a 503 with no envelope: a restart or
+     * a proxy). The row stays PROCESSING during the wait; the sweep covers a
+     * restart in the middle of it. Every other failure is final.
+     */
+    private AnalyzeResponseDTO callWithOneRetry(UUID id, AnalyzeRequestDTO request) {
+        try {
+            return aiClient.analyze(request);
+        } catch (RuntimeException first) {
+            if (!isUnreachable(first)) {
+                throw first;
+            }
+            Duration delay = properties.retryDelay();
+            log.warn("AI service unreachable, retrying once in {} correlation_id={}", delay, id);
+            try {
+                if (!delay.isZero()) {
+                    Thread.sleep(delay.toMillis());
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw first;
+            }
+            return aiClient.analyze(request);
+        }
+    }
+
+    private static boolean isUnreachable(RuntimeException e) {
+        if (e instanceof AiServiceException ex) {
+            return ex.httpStatus() == 503 && !ex.hasEnvelope();
+        }
+        return hasCause(e, ConnectException.class);
+    }
+
+    /**
+     * The stored error_code for a failed call (spec: Spring outcome mapping).
+     * An envelope's code is kept, since the code alone decides retryability;
+     * everything else is a Spring-written code.
+     */
+    private static String errorCodeFor(UUID id, RuntimeException e) {
+        if (e instanceof AiServiceException ex) {
+            if (ex.httpStatus() == 401) {
+                log.error("AI service rejected the internal token (401): check FAIRPATH_AI_INTERNAL_TOKEN "
+                        + "correlation_id={}", id);
+                return AnalysisErrorCodes.INTERNAL_ERROR;
+            }
+            return ex.hasEnvelope() ? ex.errorCode() : AnalysisErrorCodes.INTERNAL_ERROR;
+        }
+        if (hasCause(e, SocketTimeoutException.class)) {
+            return AnalysisErrorCodes.ANALYSIS_TIMED_OUT;
+        }
+        return AnalysisErrorCodes.INTERNAL_ERROR;
+    }
+
+    private static boolean hasCause(Throwable e, Class<? extends Throwable> type) {
+        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (type.isInstance(t)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -86,6 +86,8 @@ public class AnalysisService {
                 analysis.getStatus(),
                 analysis.getCreatedAt(),
                 analysis.getErrorCode(),
+                analysis.getStatus() == Analysis.Status.FAILED
+                        ? AnalysisErrorCodes.isRetryable(analysis.getErrorCode()) : null,
                 completed ? new ScoresDTO(analysis.getScoreFormatting(), analysis.getScoreParseability(),
                         analysis.getScoreWriting(), analysis.getScoreOverall()) : null,
                 completed ? readIssues(analysis.getIssues()) : null,
