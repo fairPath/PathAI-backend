@@ -34,9 +34,6 @@ import com.job_search.fair_path.repository.AnalysisRepository;
 @Component
 public class AnalysisRunner {
 
-    /** Walking skeleton: one generic code for every AI-service failure. */
-    static final String GENERIC_FAILURE = "INTERNAL_ERROR";
-
     private static final Set<String> SEVERITIES = Set.of("low", "medium", "high");
 
     private static final Logger log = LoggerFactory.getLogger(AnalysisRunner.class);
@@ -76,7 +73,7 @@ public class AnalysisRunner {
             // Class name only: exception messages can carry row data.
             log.error("Analysis runner failed correlation_id={} error={}", id, e.getClass().getSimpleName());
             try {
-                fail(id);
+                fail(id, AnalysisErrorCodes.INTERNAL_ERROR);
             } catch (RuntimeException again) {
                 // e.g. the database is down; the sweep times the row out later.
                 log.error("Could not mark the Analysis failed correlation_id={} error={}", id,
@@ -117,7 +114,7 @@ public class AnalysisRunner {
         String issuesJson = isWellFormed(response) ? issuesJson(response) : null;
         if (issuesJson == null) {
             log.warn("AI-service response is malformed, not stored correlation_id={}", id);
-            fail(id);
+            fail(id, AnalysisErrorCodes.INTERNAL_ERROR);
             return;
         }
 
@@ -126,10 +123,6 @@ public class AnalysisRunner {
         if (rows == 0) {
             log.warn("Late result discarded correlation_id={}", id);
         }
-    }
-
-    private void fail(UUID id) {
-        fail(id, GENERIC_FAILURE);
     }
 
     private void fail(UUID id, String errorCode) {

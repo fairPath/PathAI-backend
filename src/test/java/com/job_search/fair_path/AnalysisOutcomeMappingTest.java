@@ -137,6 +137,42 @@ class AnalysisOutcomeMappingTest extends AnalysisTestSupport {
     }
 
     @Test
+    void a503WithAnIncompleteEnvelopeCountsAsHavingNone() throws Exception {
+        UUID id = insertPending();
+        aiService.stubFor(post(urlEqualTo("/resume")).willReturn(aResponse().withStatus(503)
+                .withHeader("Content-Type", "application/json").withBody("{\"error_code\": \"SOMETHING\"}")));
+
+        runner.run(requestFor(id));
+
+        assertFailed(id, "INTERNAL_ERROR", true);
+        aiService.verify(2, postRequestedFor(urlEqualTo("/resume")));
+    }
+
+    @Test
+    void anErrorCodeThatIsNotAnIdentifierIsNeverStored() throws Exception {
+        UUID id = insertPending();
+        aiService.stubFor(post(urlEqualTo("/resume")).willReturn(envelope(502, id.toString(),
+                "not an identifier " + "x".repeat(300), true)));
+
+        runner.run(requestFor(id));
+
+        assertFailed(id, "INTERNAL_ERROR", true);
+    }
+
+    @Test
+    void aRetryableThatIsNotABooleanMakesTheEnvelopeInvalid() throws Exception {
+        UUID id = insertPending();
+        aiService.stubFor(post(urlEqualTo("/resume")).willReturn(aResponse().withStatus(502)
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"correlation_id\": \"%s\", \"error_code\": \"LLM_UNAVAILABLE\", \"retryable\": \"true\"}"
+                        .formatted(id))));
+
+        runner.run(requestFor(id));
+
+        assertFailed(id, "INTERNAL_ERROR", true);
+    }
+
+    @Test
     void a401FailsWithInternalErrorAndIsNotRetried() throws Exception {
         UUID id = insertPending();
         aiService.stubFor(post(urlEqualTo("/resume")).willReturn(aResponse().withStatus(401)

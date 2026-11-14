@@ -1,6 +1,7 @@
 package com.job_search.fair_path.config;
 
 import java.io.IOException;
+import java.util.regex.Pattern;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -51,20 +52,26 @@ public class AiServiceClientConfig {
                 .build();
     }
 
-    /** Decodes the error envelope; a body that isn't a valid one yields an exception with no code. */
+    /** An error_code is an upper-case identifier: anything else is never stored in a row. */
+    private static final Pattern ERROR_CODE = Pattern.compile("[A-Z][A-Z0-9_]{0,63}");
+
+    /**
+     * Decodes the error envelope. A valid one has a text correlation_id, an
+     * error_code that is an upper-case identifier, and a boolean retryable;
+     * anything else yields an exception with no code.
+     */
     static AiServiceException toException(ClientHttpResponse response, ObjectMapper objectMapper)
             throws IOException {
         int status = response.getStatusCode().value();
         try {
             JsonNode body = objectMapper.readTree(response.getBody());
+            JsonNode correlationId = body == null ? null : body.get("correlation_id");
             JsonNode code = body == null ? null : body.get("error_code");
-            if (code != null && code.isTextual() && !code.asText().isBlank()) {
-                JsonNode correlationId = body.get("correlation_id");
-                JsonNode retryable = body.get("retryable");
-                return new AiServiceException(status,
-                        correlationId != null && correlationId.isTextual() ? correlationId.asText() : null,
-                        code.asText(),
-                        retryable != null && retryable.asBoolean(false));
+            JsonNode retryable = body == null ? null : body.get("retryable");
+            if (correlationId != null && correlationId.isTextual()
+                    && code != null && code.isTextual() && ERROR_CODE.matcher(code.asText()).matches()
+                    && retryable != null && retryable.isBoolean()) {
+                return new AiServiceException(status, correlationId.asText(), code.asText(), retryable.asBoolean());
             }
         } catch (IOException | RuntimeException e) {
             // Not JSON, or not readable: treated as no envelope. Never log the body.
