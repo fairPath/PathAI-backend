@@ -40,6 +40,13 @@ public class Analysis {
         PENDING, PROCESSING, COMPLETED, FAILED
     }
 
+    /**
+     * The partial unique index allowing one PENDING/PROCESSING Analysis per
+     * user. Created by hand (ddl-auto=update cannot): see the README's
+     * "Manual schema changes". Matched by name when an insert violates it.
+     */
+    public static final String ONE_IN_FLIGHT_INDEX = "uq_analysis_one_in_flight_per_user";
+
     @Id
     @UuidGenerator
     @Column(name = "id", nullable = false, updatable = false)

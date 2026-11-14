@@ -42,13 +42,15 @@ public class AnalysisRunner {
     private final ResumeAnalysisAiClient aiClient;
     private final ObjectMapper objectMapper;
     private final AiServiceProperties properties;
+    private final AnalysisCompletion completion;
 
     public AnalysisRunner(AnalysisRepository analysisRepository, ResumeAnalysisAiClient aiClient,
-            ObjectMapper objectMapper, AiServiceProperties properties) {
+            ObjectMapper objectMapper, AiServiceProperties properties, AnalysisCompletion completion) {
         this.analysisRepository = analysisRepository;
         this.aiClient = aiClient;
         this.objectMapper = objectMapper;
         this.properties = properties;
+        this.completion = completion;
     }
 
     // @Async: the request thread returns 202 without waiting, and the guarded
@@ -118,7 +120,8 @@ public class AnalysisRunner {
             return;
         }
 
-        int rows = analysisRepository.complete(id, response.scores(), issuesJson, response.model(),
+        // The transition and its Usage record commit together, or not at all.
+        int rows = completion.complete(id, response.scores(), issuesJson, response.model(),
                 response.pipelineVersion());
         if (rows == 0) {
             log.warn("Late result discarded correlation_id={}", id);
