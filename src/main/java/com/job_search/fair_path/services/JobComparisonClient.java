@@ -32,9 +32,15 @@ public class JobComparisonClient {
             @JsonProperty("matched_skills") List<String> matchedSkills,
             @JsonProperty("missing_skills") List<String> missingSkills,
             @JsonProperty("relevant_experience") String relevantExperience,
-            @JsonProperty("other_gaps") List<String> otherGaps) {
+            @JsonProperty("other_gaps") List<String> otherGaps,
+            @JsonProperty("skill_match_score") Integer skillMatchScore,
+            @JsonProperty("experience_match_score") Integer experienceMatchScore,
+            @JsonProperty("resume_advice") String resumeAdvice) {
         public void validate() {
             if (matchScore == null || matchScore < 0 || matchScore > 100 || relevantExperience == null
+                    || skillMatchScore == null || skillMatchScore < 0 || skillMatchScore > 100
+                    || experienceMatchScore == null || experienceMatchScore < 0 || experienceMatchScore > 100
+                    || resumeAdvice == null || resumeAdvice.isBlank()
                     || matchedSkills == null || missingSkills == null || otherGaps == null
                     || matchedSkills.stream().anyMatch(s -> s == null)
                     || missingSkills.stream().anyMatch(s -> s == null)

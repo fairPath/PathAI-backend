@@ -208,3 +208,9 @@ Allows at most one `PENDING` or `PROCESSING` Analysis per user. A second concurr
 The index name is also a constant in the code (`Analysis.ONE_IN_FLIGHT_INDEX`). If you rename the index, rename the constant too.
 
 Until ticket #59 lands, a Spring restart in the middle of an Analysis leaves a row `PENDING` or `PROCESSING`. That user then cannot Analyze, replace or delete their Resume until the row is failed. The `UPDATE` above clears it.
+
+Match results include `skillMatchScore`, `experienceMatchScore`, total `matchScore`, and
+`resumeAdvice` (one or two brief sentences). The AI service computes the total from
+a configured 50/50 average. All fields are cleared when a new check is requested.
+Resume snapshot fields and S3 cleanup have been removed. This contract assumes the
+owner clears/recreates the database schema; no migration or historical-data fallback is included.

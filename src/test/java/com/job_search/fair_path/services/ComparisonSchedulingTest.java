@@ -30,7 +30,7 @@ class ComparisonSchedulingTest {
             when(client.compare(task)).thenAnswer(invocation -> {
                 inAi.countDown();
                 if (!releaseAi.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Test did not release AI");
-                return new JobComparisonClient.Result(80, List.of(), List.of(), "", List.of());
+                return new JobComparisonClient.Result(80, List.of(), List.of(), "", List.of(), 90, 70, "Highlight your relevant projects.");
             });
             String schedulerName = JobComparisonWorker.class.getMethod("processNext")
                     .getAnnotation(Scheduled.class).scheduler();

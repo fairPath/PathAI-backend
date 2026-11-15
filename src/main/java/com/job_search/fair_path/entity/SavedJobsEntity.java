@@ -52,6 +52,12 @@ public class SavedJobsEntity {
     @Column(name = "match_score", precision = 5, scale = 2)
     private BigDecimal matchScore;
 
+    @Column(name = "skill_match_score")
+    private Integer skillMatchScore;
+    @Column(name = "experience_match_score")
+    private Integer experienceMatchScore;
+    @Column(name = "resume_advice", columnDefinition = "text")
+    private String resumeAdvice;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "matched_skills", columnDefinition = "jsonb")

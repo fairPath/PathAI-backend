@@ -28,7 +28,8 @@ class JobComparisonClientTest extends IntegrationTestBase {
 
     private static final String VALID_RESULT = """
             {"match_score": 85, "matched_skills": ["Java"], "missing_skills": ["Go"],
-             "relevant_experience": "Five years of backend work", "other_gaps": []}
+             "relevant_experience": "Five years of backend work", "other_gaps": [],
+             "skill_match_score": 90, "experience_match_score": 80, "resume_advice": "Highlight your relevant Java projects."}
             """;
 
     @Autowired
@@ -52,6 +53,9 @@ class JobComparisonClientTest extends IntegrationTestBase {
         var result = client.compare(task);
 
         assertThat(result.matchScore()).isEqualTo(85);
+        assertThat(result.skillMatchScore()).isEqualTo(90);
+        assertThat(result.experienceMatchScore()).isEqualTo(80);
+        assertThat(result.resumeAdvice()).isEqualTo("Highlight your relevant Java projects.");
         assertThat(result.matchedSkills()).containsExactly("Java");
         assertThat(result.missingSkills()).containsExactly("Go");
         assertThat(result.relevantExperience()).isEqualTo("Five years of backend work");
@@ -126,6 +130,14 @@ class JobComparisonClientTest extends IntegrationTestBase {
         var failure = org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task));
         org.junit.jupiter.api.Assertions.assertTrue(failure.retryable());
         org.junit.jupiter.api.Assertions.assertEquals(60, failure.retryAfterSeconds());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"skill_match_score", "experience_match_score"})
+    void invalidComponentScoreIsRejected(String field) {
+        stubComparison(200, VALID_RESULT.replace("\"" + field + "\": " + (field.equals("skill_match_score") ? "90" : "80"), "\"" + field + "\": 101"));
+        assertThatThrownBy(() -> client.compare(task))
+                .isInstanceOf(ComparisonFailure.class).hasMessage("INVALID_AI_RESPONSE");
     }
 
     @Test

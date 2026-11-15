@@ -75,6 +75,7 @@ public class JobComparisonQueue {
         result.validate();
         return jdbc.update("""
                 UPDATE saved_jobs AS job SET comparison_status = 'COMPLETED', match_score = ?,
+                    skill_match_score = ?, experience_match_score = ?, resume_advice = ?,
                     matched_skills = CAST(? AS jsonb), missing_skills = CAST(? AS jsonb),
                     relevant_experience = ?, other_gaps = CAST(? AS jsonb),
                     resume_id = ?, comparison_resume_updated_at = ?, comparison_completed_at = CURRENT_TIMESTAMP,
@@ -84,7 +85,8 @@ public class JobComparisonQueue {
                     AND comparison_status = 'PENDING' AND comparison_lease_until > CURRENT_TIMESTAMP
                     AND EXISTS (SELECT 1 FROM resume r WHERE r.user_id = job.user_id
                         AND r.id = ? AND r.updated_at = ? AND r.status = 'ACTIVE' AND r.s3_key = ?)
-                """, result.matchScore(), mapper.writeValueAsString(result.matchedSkills()),
+                """, result.matchScore(), result.skillMatchScore(), result.experienceMatchScore(), result.resumeAdvice(),
+                mapper.writeValueAsString(result.matchedSkills()),
                 mapper.writeValueAsString(result.missingSkills()), result.relevantExperience(),
                 mapper.writeValueAsString(result.otherGaps()), task.resumeId(), Timestamp.from(task.resumeUpdatedAt()),
                 task.savedJobId(), task.requestId(), task.leaseToken(), task.resumeId(),

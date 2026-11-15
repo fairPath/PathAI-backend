@@ -152,6 +152,9 @@ public class SavedJobService {
                 job.getSalaryMin(), job.getSalaryMax(), true);
         dto.setResumeId(job.getResumeId());
         dto.setMatchScore(job.getMatchScore());
+        dto.setSkillMatchScore(job.getSkillMatchScore());
+        dto.setExperienceMatchScore(job.getExperienceMatchScore());
+        dto.setResumeAdvice(job.getResumeAdvice());
         dto.setMatchedSkills(job.getMatchedSkills());
         dto.setMissingSkills(job.getMissingSkills());
         dto.setRelevantExperience(job.getRelevantExperience());

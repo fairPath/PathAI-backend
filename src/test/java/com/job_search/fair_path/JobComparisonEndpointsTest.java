@@ -58,21 +58,30 @@ class JobComparisonEndpointsTest extends AnalysisTestSupport {
         aiService.stubFor(com.github.tomakehurst.wiremock.client.WireMock.post(urlEqualTo("/job-comparison"))
                 .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
                     {"correlation_id":"%s","match_score":85,"matched_skills":["Java"],
-                     "missing_skills":["Go"],"relevant_experience":"Backend","other_gaps":[]}
+                     "missing_skills":["Go"],"relevant_experience":"Backend","other_gaps":[],
+                     "skill_match_score":90,"experience_match_score":80,"resume_advice":"Highlight your relevant projects."}
                     """.formatted(id))));
         worker.processNext();
         mockMvc.perform(get("/saved-jobs/status").param("jobId", "job").header("Authorization", bearerToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].comparisonStatus").value("COMPLETED"))
                 .andExpect(jsonPath("$[0].matchScore").value(85))
+                .andExpect(jsonPath("$[0].skillMatchScore").value(90))
+                .andExpect(jsonPath("$[0].experienceMatchScore").value(80))
+                .andExpect(jsonPath("$[0].resumeAdvice").value("Highlight your relevant projects."))
                 .andExpect(jsonPath("$[0].comparisonCompletedAt").isNotEmpty())
                 .andExpect(jsonPath("$[0].resumeSnapshot").doesNotExist());
         aiService.verify(postRequestedFor(urlEqualTo("/job-comparison"))
                 .withRequestBody(matchingJsonPath("$.s3_key", equalTo("resumes/latest.pdf")))
                 .withRequestBody(matchingJsonPath("$.correlation_id", equalTo(id))));
         mockMvc.perform(get("/saved-jobs/detail").param("jobId", "job").header("Authorization", bearerToken))
-                .andExpect(jsonPath("$.matchScore").value(85));
+                .andExpect(jsonPath("$.skillMatchScore").value(90))
+                .andExpect(jsonPath("$.experienceMatchScore").value(80))
+                .andExpect(jsonPath("$.resumeAdvice").value("Highlight your relevant projects."));
         String recheck = compare();
         assertNull(JsonPath.read(recheck, "$.matchScore"));
+        assertNull(JsonPath.read(recheck, "$.skillMatchScore"));
+        assertNull(JsonPath.read(recheck, "$.experienceMatchScore"));
+        assertNull(JsonPath.read(recheck, "$.resumeAdvice"));
     }
 
     @Test

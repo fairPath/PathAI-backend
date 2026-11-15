@@ -24,6 +24,9 @@ public class JobResultDTO {
     private Boolean saved;
     private UUID resumeId;
     private BigDecimal matchScore;
+    private Integer skillMatchScore;
+    private Integer experienceMatchScore;
+    private String resumeAdvice;
     private List<String> matchedSkills;
     private List<String> missingSkills;
     private String relevantExperience;

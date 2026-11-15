@@ -20,7 +20,7 @@ class JobComparisonWorkerTests {
     @Test
     void successfulComparisonIsPersistedWithItsClaim() throws Exception {
         when(queue.claim()).thenReturn(Optional.of(task));
-        var result = new JobComparisonClient.Result(85, List.of("Java"), List.of(), "Experience", List.of());
+        var result = new JobComparisonClient.Result(85, List.of("Java"), List.of(), "Experience", List.of(), 90, 70, "Highlight your relevant projects.");
         when(client.compare(task)).thenReturn(result);
         when(queue.complete(task, result)).thenReturn(true);
 
@@ -44,7 +44,7 @@ class JobComparisonWorkerTests {
     @Test
     void staleResumeResultIsDiscardedAndRetried() throws Exception {
         when(queue.claim()).thenReturn(Optional.of(task));
-        var result = new JobComparisonClient.Result(85, List.of(), List.of(), "", List.of());
+        var result = new JobComparisonClient.Result(85, List.of(), List.of(), "", List.of(), 90, 70, "Highlight your relevant projects.");
         when(client.compare(task)).thenReturn(result);
         when(queue.complete(task, result)).thenReturn(false);
         new JobComparisonWorker(queue, client).processNext();
@@ -73,8 +73,8 @@ class JobComparisonWorkerTests {
     @Test
     void malformedModelResultCannotBeStored() {
         assertThrows(IllegalArgumentException.class,
-                () -> new JobComparisonClient.Result(101, List.of(), List.of(), "", List.of()).validate());
+                () -> new JobComparisonClient.Result(101, List.of(), List.of(), "", List.of(), 90, 70, "Highlight your relevant projects.").validate());
         assertThrows(IllegalArgumentException.class,
-                () -> new JobComparisonClient.Result(50, null, List.of(), "", List.of()).validate());
+                () -> new JobComparisonClient.Result(50, null, List.of(), "", List.of(), 90, 70, "Highlight your relevant projects.").validate());
     }
 }
