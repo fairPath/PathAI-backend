@@ -14,5 +14,7 @@ public record AiServiceProperties(
         // Placeholder until hardening sets it from measured latency.
         @DefaultValue("120s") Duration readTimeout,
         // The wait before Analyze's single retry of a refused connection or a bare 503.
-        @DefaultValue("5s") Duration retryDelay) {
+        @DefaultValue("5s") Duration retryDelay,
+        @DefaultValue("2") int analysisMaxAttempts,
+        @DefaultValue("8192") int maxErrorBodyBytes) {
 }

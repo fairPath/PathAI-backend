@@ -77,4 +77,15 @@ class JobComparisonWorkerTests {
         assertThrows(IllegalArgumentException.class,
                 () -> new JobComparisonClient.Result(50, null, List.of(), "", List.of()).validate());
     }
+
+    @Test
+    void transientDatabaseFailureRemainsRetryable() throws Exception {
+        when(queue.claim()).thenReturn(Optional.of(task));
+        var result = new JobComparisonClient.Result(85, List.of(), List.of(), "", List.of());
+        when(client.compare(task)).thenReturn(result);
+        when(queue.complete(task, result)).thenThrow(new org.springframework.dao.CannotAcquireLockException("Synthetic lock timeout"));
+        new JobComparisonWorker(queue, client).processNext();
+        verify(queue).retryOrFail(eq(task), argThat(failure -> failure.retryable()));
+    }
+
 }
