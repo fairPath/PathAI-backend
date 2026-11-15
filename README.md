@@ -97,15 +97,53 @@ S3 Access test:
 GET http://localhost:8080/api/aws/s3-test
 
 
-## Explicit match checks with the latest resume
+## Saved-job match checks
 
-Saving only persists job metadata. `POST /saved-jobs/compare` accepts `{jobId}` and
-queues a JWT-owner-scoped comparison; duplicate pending requests reuse the same ID.
-Each attempt resolves the latest ACTIVE resume key and version. Completion checks
-the resume ID, timestamp and key, discarding stale results after replacement.
-Resume snapshots and S3 copy/cleanup code have been removed. The owner is resetting
-the database; no migration or historical-data compatibility is included.
-Completed results expose `comparisonResumeUpdatedAt` and `comparisonCompletedAt`.
+Saving through `POST /saved-jobs/prepare` only persists the job. An explicit
+`POST /saved-jobs/compare` with `{ jobId }` queues comparison and returns 202.
+The JWT owner scopes every saved-job and active-resume lookup. Repeated clicks
+while PENDING reuse the existing request; a later manual check creates a new request ID.
+
+On each attempt, the worker resolves the user's latest ACTIVE row in `resume`.
+It sends that row's live S3 key to the AI service. No resume snapshot is created.
+The completion update checks the resume ID, update timestamp and S3 key again:
+a changed resume discards the stale result and retries against the latest version.
+
+The durable queue remains in `saved_jobs`, with lease and request guards.
+A dedicated `comparisonScheduler` runs one comparison at a time per instance;
+the default `taskScheduler` remains available for scheduled maintenance.
+Multiple instances can safely claim using `FOR UPDATE SKIP LOCKED`.
+
+Spring and the AI service share a correlated contract: `correlation_id` is the
+comparison request ID; success echoes it; errors use
+`{ correlation_id, error_code, retryable }`. The shared `aiServiceRestClient`
+owns transport settings. The AI model gateway sets `store=False`.
+
+Permanent errors fail immediately. Connection failures, 408/429/502/503/504
+responses can retry, unless a typed envelope declares a permanent cause.
+The worker honors Retry-After and defaults to three attempts with 10/20-second backoff and a 180-second
+lease; these limits are configurable under `fairpath.comparison-worker`.
+The DTO exposes `comparisonErrorCode`, `comparisonRetryable`,
+`comparisonResumeUpdatedAt` and `comparisonCompletedAt`.
+
+The UI polls pending jobs every two seconds. Permanent failures disable Check match
+for that page session, with fixed error copy; refresh permits another deliberate attempt.
+Only a user-session 401 redirects to login. An internal AI token error is a terminal
+service/configuration failure, never a login redirect.
+
+Required backend environment: `FAIRPATH_AI_SERVICE_URL` and
+`FAIRPATH_AI_INTERNAL_TOKEN` (matching AI `INTERNAL_TOKEN`), plus existing DB/JWT/AWS
+settings. The AI bucket must match the active resume bucket.
+`COMPARISON_WORKER_ENABLED` controls worker enablement.
+
+Deploy the frontend, backend and AI service changes together. Hibernate's existing
+`ddl-auto=update` adds nullable error/retryability/version/completion columns on
+human-run startup. No migration scripts are included; agents never start the app
+against the shared database.
+
+`./gradlew test` uses disposable Testcontainers PostgreSQL and WireMock.
+Tests cover save-only behavior, explicit comparison, ownership, permanent failures,
+concurrent claims, lease recovery and stale-resume result fencing.
 
 ## Saved-job description storage
 

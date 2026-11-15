@@ -98,6 +98,8 @@ public class JobService {
                         job.setResumeId(savedJob.getResumeId());
                         job.setComparisonStatus(savedJob.getComparisonStatus());
                         job.setComparisonRequestId(savedJob.getComparisonRequestId());
+                        job.setComparisonErrorCode(savedJob.getComparisonErrorCode());
+                        job.setComparisonRetryable(savedJob.getComparisonRetryable());
                         job.setComparisonResumeUpdatedAt(savedJob.getComparisonResumeUpdatedAt());
                         job.setComparisonCompletedAt(savedJob.getComparisonCompletedAt());
                         job.setMatchScore(savedJob.getMatchScore());

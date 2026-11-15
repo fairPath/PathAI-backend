@@ -67,11 +67,46 @@ class JobComparisonEndpointsTest extends AnalysisTestSupport {
                 .andExpect(jsonPath("$[0].comparisonCompletedAt").isNotEmpty())
                 .andExpect(jsonPath("$[0].resumeSnapshot").doesNotExist());
         aiService.verify(postRequestedFor(urlEqualTo("/job-comparison"))
-                .withRequestBody(matchingJsonPath("$.s3_key", equalTo("resumes/latest.pdf"))));
+                .withRequestBody(matchingJsonPath("$.s3_key", equalTo("resumes/latest.pdf")))
+                .withRequestBody(matchingJsonPath("$.correlation_id", equalTo(id))));
         mockMvc.perform(get("/saved-jobs/detail").param("jobId", "job").header("Authorization", bearerToken))
                 .andExpect(jsonPath("$.matchScore").value(85));
         String recheck = compare();
         assertNull(JsonPath.read(recheck, "$.matchScore"));
+    }
+
+    @Test
+    void internalAuthenticationFailureIsStoredAndNeverRedirectsTheUser() throws Exception {
+        save();
+        compare();
+        aiService.stubFor(com.github.tomakehurst.wiremock.client.WireMock.post(urlEqualTo("/job-comparison"))
+                .willReturn(aResponse().withStatus(401)));
+        worker.processNext();
+        worker.processNext();
+        mockMvc.perform(get("/saved-jobs/status").param("jobId", "job").header("Authorization", bearerToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].comparisonStatus").value("FAILED"))
+                .andExpect(jsonPath("$[0].comparisonErrorCode").value("AI_AUTHENTICATION_FAILED"))
+                .andExpect(jsonPath("$[0].comparisonRetryable").value(false));
+        aiService.verify(1, postRequestedFor(urlEqualTo("/job-comparison")));
+        // A fresh, deliberate request (e.g. after refreshing) gets a new generation.
+        assertNotNull(JsonPath.read(compare(), "$.comparisonRequestId"));
+    }
+
+    @Test
+    void transientServiceFailureRetriesThenAllowsManualRetry() throws Exception {
+        save();
+        compare();
+        aiService.stubFor(com.github.tomakehurst.wiremock.client.WireMock.post(urlEqualTo("/job-comparison"))
+                .willReturn(aResponse().withStatus(503)));
+        worker.processNext();
+        mockMvc.perform(get("/saved-jobs/status").param("jobId", "job").header("Authorization", bearerToken))
+                .andExpect(jsonPath("$[0].comparisonStatus").value("PENDING"));
+        worker.processNext();
+        worker.processNext();
+        mockMvc.perform(get("/saved-jobs/status").param("jobId", "job").header("Authorization", bearerToken))
+                .andExpect(jsonPath("$[0].comparisonStatus").value("FAILED"))
+                .andExpect(jsonPath("$[0].comparisonRetryable").value(true));
+        aiService.verify(3, postRequestedFor(urlEqualTo("/job-comparison")));
     }
 
     @Test

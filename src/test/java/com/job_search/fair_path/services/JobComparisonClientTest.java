@@ -1,5 +1,7 @@
 package com.job_search.fair_path.services;
 
+import com.job_search.fair_path.exceptions.ComparisonFailure;
+
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
@@ -34,9 +36,10 @@ class JobComparisonClientTest extends IntegrationTestBase {
 
     private final JobComparisonQueue.Task task = new JobComparisonQueue.Task(
             UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-            "job-1", "snapshots/resume.pdf", "Java and Go services", 1, UUID.randomUUID(), java.time.Instant.now());
+            "job-1", "resumes/active.pdf", "Java and Go services", 1, UUID.randomUUID(), java.time.Instant.now());
 
     private void stubComparison(int status, String body) {
+        if (status == 200) body = body.replaceFirst("\\{", "{\"correlation_id\":\"" + task.requestId() + "\",");
         aiService.stubFor(post(urlEqualTo("/job-comparison"))
                 .willReturn(aResponse().withStatus(status)
                         .withHeader("Content-Type", "application/json").withBody(body)));
@@ -57,9 +60,9 @@ class JobComparisonClientTest extends IntegrationTestBase {
                 .withHeader("X-Internal-Token", equalTo(AI_SERVICE_TOKEN))
                 .withHeader("Content-Type", equalTo(MediaType.APPLICATION_JSON_VALUE))
                 .withRequestBody(equalToJson("""
-                        {"job_id": "job-1", "s3_key": "snapshots/resume.pdf",
+                        {"correlation_id": "%s", "job_id": "job-1", "s3_key": "resumes/active.pdf",
                          "job_description": "Java and Go services"}
-                        """)));
+                        """.formatted(task.requestId()))));
     }
 
     @Test
@@ -67,8 +70,8 @@ class JobComparisonClientTest extends IntegrationTestBase {
         stubComparison(500, "{\"detail\": \"resume text that must not reach logs\"}");
 
         assertThatThrownBy(() -> client.compare(task))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("AI service returned HTTP 500")
+                .isInstanceOf(ComparisonFailure.class)
+                .hasMessage("AI_REQUEST_REJECTED")
                 .hasMessageNotContaining("resume text");
     }
 
@@ -77,8 +80,8 @@ class JobComparisonClientTest extends IntegrationTestBase {
         stubComparison(401, "{\"detail\": \"Invalid authentication credentials\"}");
 
         assertThatThrownBy(() -> client.compare(task))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("AI service returned HTTP 401");
+                .isInstanceOf(ComparisonFailure.class)
+                .hasMessage("AI_AUTHENTICATION_FAILED");
     }
 
     @Test
@@ -86,8 +89,43 @@ class JobComparisonClientTest extends IntegrationTestBase {
         stubComparison(200, VALID_RESULT.replace("85", "101"));
 
         assertThatThrownBy(() -> client.compare(task))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("invalid comparison result");
+                .isInstanceOf(ComparisonFailure.class)
+                .hasMessage("INVALID_AI_RESPONSE");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {400, 401, 403, 404, 405, 413, 415, 422, 500})
+    void permanentStatusesAreNotRetried(int status) {
+        stubComparison(status, "{}");
+        org.junit.jupiter.api.Assertions.assertFalse(
+            org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task)).retryable());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {408, 429, 502, 503, 504})
+    void transientStatusesAreRetriable(int status) {
+        stubComparison(status, "{}");
+        org.junit.jupiter.api.Assertions.assertTrue(
+            org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task)).retryable());
+    }
+
+    @Test
+    void typedPermanentProviderConfigurationFailureOverrides502() {
+        stubComparison(502, """
+                {"correlation_id": "%s", "error_code": "AI_CONFIGURATION_ERROR", "retryable": false}
+                """.formatted(task.requestId()));
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task));
+        org.junit.jupiter.api.Assertions.assertFalse(failure.retryable());
+        org.junit.jupiter.api.Assertions.assertEquals("AI_CONFIGURATION_ERROR", failure.errorCode());
+    }
+
+    @Test
+    void rateLimitHonorsRetryAfter() {
+        aiService.stubFor(post(urlEqualTo("/job-comparison"))
+                .willReturn(aResponse().withStatus(429).withHeader("Retry-After", "60").withBody("{}")));
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task));
+        org.junit.jupiter.api.Assertions.assertTrue(failure.retryable());
+        org.junit.jupiter.api.Assertions.assertEquals(60, failure.retryAfterSeconds());
     }
 
     @Test

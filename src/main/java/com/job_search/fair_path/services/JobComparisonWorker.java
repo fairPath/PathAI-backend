@@ -1,5 +1,7 @@
 package com.job_search.fair_path.services;
 
+import com.job_search.fair_path.exceptions.ComparisonFailure;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -18,7 +20,7 @@ public class JobComparisonWorker {
         this.client = client;
     }
 
-    @Scheduled(fixedDelayString = "${fairpath.comparison-worker.poll-ms:1000}",
+    @Scheduled(scheduler = "comparisonScheduler", fixedDelayString = "${fairpath.comparison-worker.poll-ms:1000}",
             initialDelayString = "${fairpath.comparison-worker.initial-delay-ms:5000}")
     public void processNext() {
         try {
@@ -31,15 +33,18 @@ public class JobComparisonWorker {
 
     private void process(JobComparisonQueue.Task task) {
         try {
-            if (task.resumeId() == null || task.s3Key() == null || task.resumeUpdatedAt() == null) {
-                queue.retryOrFail(task);
-                return;
-            }
-            if (!queue.complete(task, client.compare(task))) queue.retryOrFail(task);
+            if (task.resumeId() == null || task.s3Key() == null || task.resumeUpdatedAt() == null)
+                throw new ComparisonFailure("RESUME_REQUIRED", false);
+            if (!queue.complete(task, client.compare(task)))
+                queue.retryOrFail(task, new ComparisonFailure("RESUME_CHANGED", true));
+        } catch (ComparisonFailure failure) {
+            logger.warn("Comparison failed correlation_id={} attempt={} error_code={}",
+                    task.requestId(), task.attempt(), failure.errorCode());
+            queue.retryOrFail(task, failure);
         } catch (Exception error) {
-            logger.warn("Comparison failed correlation_id={} attempt={} error_type={}",
-                    task.requestId(), task.attempt(), error.getClass().getSimpleName());
-            queue.retryOrFail(task);
+            logger.error("Comparison failed correlation_id={} error_type={}",
+                    task.requestId(), error.getClass().getSimpleName());
+            queue.retryOrFail(task, new ComparisonFailure("INTERNAL_ERROR", false));
         }
     }
 }

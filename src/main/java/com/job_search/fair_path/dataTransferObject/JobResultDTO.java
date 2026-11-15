@@ -30,6 +30,8 @@ public class JobResultDTO {
     private List<String> otherGaps;
     private String comparisonStatus;
     private UUID comparisonRequestId;
+    private String comparisonErrorCode;
+    private Boolean comparisonRetryable;
     private java.time.Instant comparisonResumeUpdatedAt;
     private java.time.Instant comparisonCompletedAt;
 

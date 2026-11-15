@@ -1,5 +1,7 @@
 package com.job_search.fair_path.services;
 
+import com.job_search.fair_path.exceptions.ComparisonFailure;
+
 import java.time.Instant;
 import java.sql.Timestamp;
 import java.util.Optional;
@@ -34,7 +36,8 @@ public class JobComparisonQueue {
 
     public Optional<Task> claim() {
         jdbc.update("""
-                UPDATE saved_jobs SET comparison_status = 'FAILED', comparison_lease_token = NULL,
+                UPDATE saved_jobs SET comparison_status = 'FAILED', comparison_error_code = 'COMPARISON_TIMED_OUT',
+                    comparison_retryable = TRUE, comparison_lease_token = NULL,
                     comparison_lease_until = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE comparison_status = 'PENDING' AND comparison_attempts >= ?
                     AND comparison_lease_until <= CURRENT_TIMESTAMP
@@ -75,6 +78,7 @@ public class JobComparisonQueue {
                     matched_skills = CAST(? AS jsonb), missing_skills = CAST(? AS jsonb),
                     relevant_experience = ?, other_gaps = CAST(? AS jsonb),
                     resume_id = ?, comparison_resume_updated_at = ?, comparison_completed_at = CURRENT_TIMESTAMP,
+                    comparison_error_code = NULL, comparison_retryable = NULL,
                     comparison_lease_token = NULL, comparison_lease_until = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE job.id = ? AND comparison_request_id = ? AND comparison_lease_token = ?
                     AND comparison_status = 'PENDING' AND comparison_lease_until > CURRENT_TIMESTAMP
@@ -87,14 +91,15 @@ public class JobComparisonQueue {
                 Timestamp.from(task.resumeUpdatedAt()), task.s3Key()) == 1;
     }
 
-    public void retryOrFail(Task task) {
+    public void retryOrFail(Task task, ComparisonFailure failure) {
         jdbc.update("""
-                UPDATE saved_jobs SET comparison_status = CASE WHEN comparison_attempts >= ? THEN 'FAILED' ELSE 'PENDING' END,
+                UPDATE saved_jobs SET comparison_status = CASE WHEN comparison_attempts >= ? OR NOT ? THEN 'FAILED' ELSE 'PENDING' END,
+                    comparison_error_code = ?, comparison_retryable = ?,
                     comparison_next_attempt_at = CURRENT_TIMESTAMP + INTERVAL '1 second' * ?,
                     comparison_lease_token = NULL, comparison_lease_until = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND comparison_request_id = ? AND comparison_lease_token = ?
                     AND comparison_status = 'PENDING' AND comparison_lease_until > CURRENT_TIMESTAMP
-                """, maxAttempts, (long) retrySeconds * task.attempt(),
+                """, maxAttempts, failure.retryable(), failure.errorCode(), failure.retryable(), Math.max((long) retrySeconds * task.attempt(), failure.retryAfterSeconds()),
                 task.savedJobId(), task.requestId(), task.leaseToken());
     }
 }

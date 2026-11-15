@@ -1,5 +1,7 @@
 package com.job_search.fair_path.services;
 
+import com.job_search.fair_path.exceptions.ComparisonFailure;
+
 import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -25,18 +27,36 @@ class JobComparisonWorkerTests {
         new JobComparisonWorker(queue, client).processNext();
 
         verify(queue).complete(task, result);
-        verify(queue, never()).retryOrFail(any());
+        verify(queue, never()).retryOrFail(any(), any());
     }
 
     @Test
     void failedInferenceIsRetriedWithoutDeletingTheSavedJob() throws Exception {
         when(queue.claim()).thenReturn(Optional.of(task));
-        when(client.compare(task)).thenThrow(new IllegalStateException("Provider unavailable"));
+        when(client.compare(task)).thenThrow(new ComparisonFailure("AI_UNAVAILABLE", true));
 
         new JobComparisonWorker(queue, client).processNext();
 
-        verify(queue).retryOrFail(task);
+        verify(queue).retryOrFail(eq(task), argThat(f -> f.retryable() && "AI_UNAVAILABLE".equals(f.errorCode())));
         verify(queue, never()).complete(any(), any());
+    }
+
+    @Test
+    void staleResumeResultIsDiscardedAndRetried() throws Exception {
+        when(queue.claim()).thenReturn(Optional.of(task));
+        var result = new JobComparisonClient.Result(85, List.of(), List.of(), "", List.of());
+        when(client.compare(task)).thenReturn(result);
+        when(queue.complete(task, result)).thenReturn(false);
+        new JobComparisonWorker(queue, client).processNext();
+        verify(queue).retryOrFail(eq(task), argThat(f -> f.retryable() && f.errorCode().equals("RESUME_CHANGED")));
+    }
+
+    @Test
+    void permanentFailureDoesNotBecomeAGenericRetriableError() throws Exception {
+        when(queue.claim()).thenReturn(Optional.of(task));
+        when(client.compare(task)).thenThrow(new ComparisonFailure("AI_AUTHENTICATION_FAILED", false));
+        new JobComparisonWorker(queue, client).processNext();
+        verify(queue).retryOrFail(eq(task), argThat(f -> !f.retryable() && f.errorCode().equals("AI_AUTHENTICATION_FAILED")));
     }
 
     @Test

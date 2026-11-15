@@ -158,6 +158,8 @@ public class SavedJobService {
         dto.setOtherGaps(job.getOtherGaps());
         dto.setComparisonStatus(job.getComparisonStatus());
         dto.setComparisonRequestId(job.getComparisonRequestId());
+        dto.setComparisonErrorCode(job.getComparisonErrorCode());
+        dto.setComparisonRetryable(job.getComparisonRetryable());
         dto.setComparisonResumeUpdatedAt(job.getComparisonResumeUpdatedAt());
         dto.setComparisonCompletedAt(job.getComparisonCompletedAt());
         return dto;
