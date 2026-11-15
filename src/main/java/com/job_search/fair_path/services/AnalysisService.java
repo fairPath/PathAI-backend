@@ -5,6 +5,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.context.ApplicationEventPublisher;
@@ -28,13 +29,15 @@ import com.job_search.fair_path.entity.User;
 import com.job_search.fair_path.repository.AnalysisRepository;
 import com.job_search.fair_path.repository.ResumeRepository;
 import com.job_search.fair_path.repository.UsageRecordRepository;
+import com.job_search.fair_path.repository.UserRepository;
 import com.job_search.fair_path.exceptions.NoActiveResumeException;
 import com.job_search.fair_path.exceptions.AnalysisInProgressException;
 import com.job_search.fair_path.exceptions.CooldownActiveException;
 
 /**
- * Handles the Analyze request and the status read. The AI-service call itself
- * happens after the insert commits (see AnalysisRunner).
+ * Handles the Analyze request, the status read, and the transition to
+ * COMPLETED. The AI-service call itself happens after the insert commits (see
+ * AnalysisRunner), which then calls back into completeAnalysis.
  */
 @Service
 public class AnalysisService {
@@ -47,17 +50,20 @@ public class AnalysisService {
     private final ApplicationEventPublisher events;
     private final ObjectMapper objectMapper;
     private final UsageRecordRepository usageRecordRepository;
+    private final UserRepository userRepository;
     private final AnalysisProperties properties;
     private final Clock clock;
 
     public AnalysisService(AnalysisRepository analysisRepository, ResumeRepository resumeRepository,
             ApplicationEventPublisher events, ObjectMapper objectMapper,
-            UsageRecordRepository usageRecordRepository, AnalysisProperties properties, Clock clock) {
+            UsageRecordRepository usageRecordRepository, UserRepository userRepository,
+            AnalysisProperties properties, Clock clock) {
         this.analysisRepository = analysisRepository;
         this.resumeRepository = resumeRepository;
         this.events = events;
         this.objectMapper = objectMapper;
         this.usageRecordRepository = usageRecordRepository;
+        this.userRepository = userRepository;
         this.properties = properties;
         this.clock = clock;
     }
@@ -105,6 +111,28 @@ public class AnalysisService {
         events.publishEvent(new AnalysisRequestedEvent(
                 new AnalyzeRequestDTO(analysis.getId(), resume.getS3Key(), knownPii(user))));
         return toStatus(analysis);
+    }
+
+    /**
+     * PROCESSING → COMPLETED and its Usage record, in one transaction. Called
+     * by AnalysisRunner after the AI call, so the call crosses a bean boundary
+     * and Spring's transaction proxy applies. It stays short on purpose: the
+     * AI call happens before it, never inside it.
+     *
+     * Returns the rows the guarded update changed. The Usage record is written
+     * only when that is 1, so a late result counts for nothing. If the insert
+     * throws, the update rolls back with it.
+     */
+    @Transactional
+    public int completeAnalysis(UUID id, ScoresDTO scores, String issuesJson, String model,
+            String pipelineVersion) {
+        int rows = analysisRepository.complete(id, scores, issuesJson, model, pipelineVersion);
+        if (rows == 1) {
+            UUID userId = analysisRepository.findUserId(id);
+            usageRecordRepository.save(new UsageRecord(userRepository.getReferenceById(userId),
+                    UsageRecord.Kind.ANALYSIS_COMPLETED, clock.instant()));
+        }
+        return rows;
     }
 
     /** The user's most recent Analysis, if any. */

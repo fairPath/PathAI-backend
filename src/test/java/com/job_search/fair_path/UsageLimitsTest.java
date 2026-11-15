@@ -42,7 +42,6 @@ import com.job_search.fair_path.dataTransferObject.analysis.ScoresDTO;
 import com.job_search.fair_path.entity.Analysis;
 import com.job_search.fair_path.entity.Resume;
 import com.job_search.fair_path.repository.AnalysisRepository;
-import com.job_search.fair_path.services.AnalysisCompletion;
 import com.job_search.fair_path.services.AnalysisService;
 import com.job_search.fair_path.support.AnalysisTestSupport;
 import com.jayway.jsonpath.JsonPath;
@@ -62,7 +61,7 @@ class UsageLimitsTest extends AnalysisTestSupport {
     private AnalysisRepository analysisRepository;
 
     @Autowired
-    private AnalysisCompletion completion;
+    private AnalysisService analysisService;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -94,7 +93,7 @@ class UsageLimitsTest extends AnalysisTestSupport {
     void aLateResultWritesNoUsageRecord() {
         UUID id = insertAnalysis(Analysis.Status.FAILED); // e.g. the sweep failed it first
 
-        int rows = completion.complete(id, new ScoresDTO(0, 100, 100, 67), "[]", null, "0.1.0");
+        int rows = analysisService.completeAnalysis(id, new ScoresDTO(0, 100, 100, 67), "[]", null, "0.1.0");
 
         assertThat(rows).isZero();
         assertThat(usageCount(null)).isZero();

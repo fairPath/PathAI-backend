@@ -46,7 +46,7 @@ class AnalysisRunnerTransportFailuresTest {
         AiServiceProperties properties = new AiServiceProperties("http://unused", "token",
                 Duration.ofSeconds(5), Duration.ofSeconds(120), Duration.ZERO);
         runner = new AnalysisRunner(repository, aiClient, new ObjectMapper(), properties,
-                mock(AnalysisCompletion.class));
+                mock(AnalysisService.class));
     }
 
     @Test
