@@ -1,6 +1,7 @@
 package com.job_search.fair_path.entity;
 
 import jakarta.persistence.*;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -35,6 +36,8 @@ public class User implements UserDetails {
     @Column(name = "email", unique = true, nullable = false)
     private String email;
     @Column(name = "password_hash", nullable = false)
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
     private String password;
     @Column(name = "enabled", nullable = false)
     private boolean enabled;
@@ -56,6 +59,15 @@ public class User implements UserDetails {
     }
 
     public User() {
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
     }
 
     @Override
