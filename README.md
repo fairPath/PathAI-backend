@@ -117,7 +117,13 @@ Multiple instances can safely claim using `FOR UPDATE SKIP LOCKED`.
 Spring and the AI service share a correlated contract: `correlation_id` is the
 comparison request ID; success echoes it; errors use
 `{ correlation_id, error_code, retryable }`. The shared `aiServiceRestClient`
-owns transport settings. The AI model gateway sets `store=False`.
+owns transport settings and delegates every error response to `AiServiceErrors`.
+Analysis and comparison reuse that decoder, nested transport-exception checks, and
+retry classification; feature clients must not install their own error parser.
+Existing policy profiles are preserved: Analysis automatically retries a refused
+connection or bare 503 once, while comparison allows three total transient attempts
+with 10/20-second backoff and Retry-After. Timeouts inside response-body wrappers
+remain retryable for comparison, and temporary result-storage failures also retry. The AI model gateway sets `store=False`.
 
 Permanent errors fail immediately. Connection failures, 408/429/502/503/504
 responses can retry, unless a typed envelope declares a permanent cause.

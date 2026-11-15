@@ -14,13 +14,19 @@ public class AiServiceException extends RuntimeException {
     private final String correlationId;
     private final String errorCode;
     private final boolean retryable;
+    private final long retryAfterSeconds;
 
     public AiServiceException(int httpStatus, String correlationId, String errorCode, boolean retryable) {
+        this(httpStatus, correlationId, errorCode, retryable, 0);
+    }
+
+    public AiServiceException(int httpStatus, String correlationId, String errorCode, boolean retryable, long retryAfterSeconds) {
         super("AI service returned HTTP " + httpStatus + (errorCode == null ? "" : " error_code=" + errorCode));
         this.httpStatus = httpStatus;
         this.correlationId = correlationId;
         this.errorCode = errorCode;
         this.retryable = retryable;
+        this.retryAfterSeconds = retryAfterSeconds;
     }
 
     public int httpStatus() {
@@ -41,6 +47,8 @@ public class AiServiceException extends RuntimeException {
     public boolean retryable() {
         return retryable;
     }
+
+    public long retryAfterSeconds() { return retryAfterSeconds; }
 
     public boolean hasEnvelope() {
         return errorCode != null;

@@ -146,4 +146,37 @@ class JobComparisonClientTest extends IntegrationTestBase {
 
         assertThatThrownBy(() -> client.compare(task)).isInstanceOf(Exception.class);
     }
+
+    @Test
+    void incomplete503EnvelopePreservesTransientStatus() {
+        stubComparison(503, """
+            {"correlation_id":"%s","error_code":"AI_UNAVAILABLE"}
+            """.formatted(task.requestId()));
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task));
+        org.junit.jupiter.api.Assertions.assertTrue(failure.retryable(),
+                "A malformed envelope should preserve the transient HTTP status classification");
+    }
+
+    @Test
+    void responseBodyReadTimeoutIsRetryable() {
+        var builder = org.springframework.web.client.RestClient.builder();
+        var server = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("/job-comparison"))
+                .andRespond(request -> {
+                    var response = new org.springframework.mock.http.client.MockClientHttpResponse(
+                        new java.io.InputStream() {
+                            @Override public int read() throws java.io.IOException {
+                                throw new java.net.SocketTimeoutException("Synthetic response body timeout");
+                            }
+                        }, org.springframework.http.HttpStatus.OK);
+                    response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                    return response;
+                });
+        var transport = new JobComparisonClient(new com.fasterxml.jackson.databind.ObjectMapper(), builder.build());
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> transport.compare(task));
+        org.junit.jupiter.api.Assertions.assertTrue(failure.retryable(),
+                "A response body read timeout must be retried, not classified as invalid model output");
+        server.verify();
+    }
+
 }

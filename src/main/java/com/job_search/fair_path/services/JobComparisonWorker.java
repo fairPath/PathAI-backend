@@ -44,7 +44,7 @@ public class JobComparisonWorker {
         } catch (Exception error) {
             logger.error("Comparison failed correlation_id={} error_type={}",
                     task.requestId(), error.getClass().getSimpleName());
-            queue.retryOrFail(task, new ComparisonFailure("INTERNAL_ERROR", false));
+            queue.retryOrFail(task, new ComparisonFailure("INTERNAL_ERROR", AiServiceErrors.isTransientDatabase(error)));
         }
     }
 }
