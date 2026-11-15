@@ -73,12 +73,17 @@ public class AnalysisService {
             Analysis.Status.PROCESSING);
 
     /**
-     * Inserts a PENDING Analysis for the user's active Resume. In-progress is
+     * Inserts a PENDING Analysis for the user's active Resume. It first locks
+     * the user's row, held until commit, so the checks and the insert cannot
+     * interleave with another request from the same user. In-progress is
      * checked first, then the Cooldown. The pre-check answers the normal case;
      * the partial unique index settles a true race, and both end the same way.
      */
     @Transactional
     public AnalysisStatusDTO requestAnalysis(User user) {
+        // One request per user at a time: the checks below and the insert must
+        // not interleave with another Analyze, or with a Resume delete/confirm.
+        userRepository.findByIdForUpdate(user.getId());
         Resume resume = resumeRepository.findByUserId(user.getId())
                 .filter(r -> r.getStatus() == Resume.Status.ACTIVE)
                 .orElseThrow(NoActiveResumeException::new);

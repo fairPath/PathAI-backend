@@ -23,10 +23,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
 import org.hibernate.exception.ConstraintViolationException;
@@ -36,6 +39,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.jdbc.Sql;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import com.job_search.fair_path.dataTransferObject.analysis.ScoresDTO;
@@ -65,6 +69,9 @@ class UsageLimitsTest extends AnalysisTestSupport {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private TransactionTemplate tx;
 
     // ---- the Usage record ----
 
@@ -276,6 +283,69 @@ class UsageLimitsTest extends AnalysisTestSupport {
         mockMvc.perform(delete("/resumes/delete").header("Authorization", bearerToken))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.error_code").value("ANALYSIS_IN_PROGRESS"));
+
+        verify(s3Client, never()).deleteObject(anyDeleteObjectConsumer());
+        assertThat(resumeRepository.findByUserId(user.getId())).isPresent();
+        assertThat(analysisRepository.count()).isEqualTo(1);
+    }
+
+    // ---- one request per user at a time (the per-user lock) ----
+
+    /**
+     * Holds the user's row lock, as a request that is part-way through its
+     * checks would. {@code whileLocked} runs inside that transaction, after the
+     * competing request has started and must be waiting on the lock.
+     */
+    private void holdingTheUserLock(Callable<Void> competingRequest, Runnable whileLocked)
+            throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            tx.executeWithoutResult(status -> {
+                userRepository.findByIdForUpdate(user.getId());
+                Future<Void> competing = pool.submit(competingRequest);
+                try {
+                    // Blocked on the lock: it cannot finish while we hold it.
+                    assertThatThrownBy(() -> competing.get(700, TimeUnit.MILLISECONDS))
+                            .isInstanceOf(TimeoutException.class);
+                    whileLocked.run();
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+            pool.shutdown();
+            assertThat(pool.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void analyzeWaitsForTheUserLockAndThenSeesACompletionThatLandedMeanwhile() throws Exception {
+        // Request A has passed its Cooldown check, request B completes and writes
+        // its Usage record, then A continues. With the lock A starts only after B
+        // is done, so it reads B's Usage record and is refused.
+        holdingTheUserLock(() -> {
+            analyze().andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.error_code").value("COOLDOWN_ACTIVE"));
+            return null;
+        }, () -> jdbc.update(
+                "insert into usage_record (id, user_id, kind, occurred_at) values (?, ?, 'ANALYSIS_COMPLETED', now())",
+                UUID.randomUUID(), user.getId()));
+
+        assertThat(analysisRepository.count()).isZero();
+        aiService.verify(0, anyRequestedFor(anyUrl()));
+    }
+
+    @Test
+    void deleteWaitsForTheUserLockAndThenSeesAnAnalysisThatStartedMeanwhile() throws Exception {
+        // An Analyze starts after the delete began. With the lock the delete
+        // checks afterwards, sees it running, and deletes nothing.
+        holdingTheUserLock(() -> {
+            mockMvc.perform(delete("/resumes/delete").header("Authorization", bearerToken))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.error_code").value("ANALYSIS_IN_PROGRESS"));
+            return null;
+        }, () -> insertAnalysis(Analysis.Status.PROCESSING));
 
         verify(s3Client, never()).deleteObject(anyDeleteObjectConsumer());
         assertThat(resumeRepository.findByUserId(user.getId())).isPresent();
