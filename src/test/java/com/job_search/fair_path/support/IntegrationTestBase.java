@@ -3,6 +3,7 @@ package com.job_search.fair_path.support;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -27,7 +28,7 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(PostgresTestConfig.class)
+@Import({ PostgresTestConfig.class, TestClockConfig.class })
 @ActiveProfiles("test")
 // MERGE so a method-level @Sql runs after the reset instead of replacing it.
 @SqlMergeMode(MergeMode.MERGE)
@@ -62,8 +63,13 @@ public abstract class IntegrationTestBase {
     @MockitoBean
     protected S3Presigner s3Presigner;
 
+    /** The app clock in tests: move it to test the Cooldown window. */
+    @Autowired
+    protected MutableClock clock;
+
     @BeforeEach
-    void resetAiServiceStub() {
+    void resetAiServiceStubAndClock() {
         aiService.resetAll();
+        clock.reset();
     }
 }

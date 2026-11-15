@@ -45,7 +45,8 @@ class AnalysisRunnerTransportFailuresTest {
         when(repository.claim(any(UUID.class), any(Instant.class))).thenReturn(1);
         AiServiceProperties properties = new AiServiceProperties("http://unused", "token",
                 Duration.ofSeconds(5), Duration.ofSeconds(120), Duration.ZERO);
-        runner = new AnalysisRunner(repository, aiClient, new ObjectMapper(), properties);
+        runner = new AnalysisRunner(repository, aiClient, new ObjectMapper(), properties,
+                mock(AnalysisService.class));
     }
 
     @Test

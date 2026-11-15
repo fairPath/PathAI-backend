@@ -174,3 +174,42 @@ Colima/OrbStack users: Testcontainers looks for `/var/run/docker.sock`. If your 
 ```
 docker.host=unix:///Users/<you>/.orbstack/run/docker.sock
 ```
+
+## Manual schema changes
+
+`spring.jpa.hibernate.ddl-auto=update` creates new tables and nullable columns, but it cannot create partial indexes, widen enum CHECK constraints, or rename or drop anything. Those are run **by hand** in the Supabase SQL editor by a developer (never by an agent or a tool: `fairpath-rules` rule 7). The database is shared by dev and prod, so announce the change to the other developer first and log it here.
+
+Integration tests apply the same statements to their throwaway Postgres (`src/test/resources/sql/reset.sql`), so the tests prove the exact SQL below.
+
+### 2026-11: one Analysis in flight per user (ticket #60)
+
+Allows at most one `PENDING` or `PROCESSING` Analysis per user. A second concurrent Analyze fails and maps to `ANALYSIS_IN_PROGRESS`.
+
+1. Check for rows that would block the index. Nothing sweeps stuck Analyses yet (ticket #59), so a row left `PENDING` or `PROCESSING` by a restart can exist. This must return no rows:
+
+   ```sql
+   SELECT user_id, count(*)
+   FROM analysis
+   WHERE status IN ('PENDING', 'PROCESSING')
+   GROUP BY user_id
+   HAVING count(*) > 1;
+   ```
+
+   If it returns rows, fail the stale ones first (this is real data, so look before running):
+
+   ```sql
+   UPDATE analysis SET status = 'FAILED', error_code = 'ANALYSIS_TIMED_OUT'
+   WHERE status IN ('PENDING', 'PROCESSING') AND created_at < now() - interval '10 minutes';
+   ```
+
+2. Create the index:
+
+   ```sql
+   CREATE UNIQUE INDEX IF NOT EXISTS uq_analysis_one_in_flight_per_user
+       ON analysis (user_id)
+       WHERE status IN ('PENDING', 'PROCESSING');
+   ```
+
+The index name is also a constant in the code (`Analysis.ONE_IN_FLIGHT_INDEX`). If you rename the index, rename the constant too.
+
+Until ticket #59 lands, a Spring restart in the middle of an Analysis leaves a row `PENDING` or `PROCESSING`. That user then cannot Analyze, replace or delete their Resume until the row is failed. The `UPDATE` above clears it.

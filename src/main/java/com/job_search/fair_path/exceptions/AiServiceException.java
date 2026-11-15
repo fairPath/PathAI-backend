@@ -1,4 +1,4 @@
-package com.job_search.fair_path.config;
+package com.job_search.fair_path.exceptions;
 
 /**
  * An error response from the AI service. When the body was a valid error

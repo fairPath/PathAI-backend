@@ -1,5 +1,6 @@
 package com.job_search.fair_path.services;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.UUID;
 
@@ -8,7 +9,9 @@ import org.springframework.stereotype.Service;
 
 import com.job_search.fair_path.dataTransferObject.ResumePresignUrlResponseDTO;
 import com.job_search.fair_path.entity.Resume;
+import com.job_search.fair_path.repository.AnalysisRepository;
 import com.job_search.fair_path.repository.ResumeRepository;
+import com.job_search.fair_path.repository.UserRepository;
 
 import jakarta.transaction.Transactional;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -19,6 +22,7 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import com.job_search.fair_path.exceptions.AnalysisInProgressException;
 
 @Service
 public class ResumeService {
@@ -26,14 +30,20 @@ public class ResumeService {
     private final S3Client s3Client;
     private final String bucketName;
     private final ResumeRepository resumeRepository;
+    private final AnalysisRepository analysisRepository;
+    private final UserRepository userRepository;
+    private final Clock clock;
 
     public ResumeService(S3Presigner s3Presigner, S3Client s3Client, @Value("${aws.s3.bucket}") String bucketName,
-            ResumeRepository resumeRepository) {
+            ResumeRepository resumeRepository, AnalysisRepository analysisRepository, UserRepository userRepository, Clock clock) {
 
         this.s3Presigner = s3Presigner;
         this.s3Client = s3Client;
         this.bucketName = bucketName;
         this.resumeRepository = resumeRepository;
+        this.analysisRepository = analysisRepository;
+        this.userRepository = userRepository;
+        this.clock = clock;
     }
 
     public ResumePresignUrlResponseDTO createPresignUploadUrl(UUID userId, String filename) {
@@ -44,6 +54,10 @@ public class ResumeService {
         if (filename == null || filename.isBlank()) {
             throw new IllegalArgumentException("Filename cannot be null or empty");
         }
+        // Replacing deletes the Analyses, and deleting an in-flight one would
+        // discard its result with no Usage record. Checked before the try
+        // below, which would wrap this exception as a 500.
+        rejectWhileAnalysisInFlight(userId);
 
         try {
 
@@ -82,11 +96,28 @@ public class ResumeService {
         if (userId == null) {
             throw new IllegalArgumentException("User ID cannot be null");
         }
+        lockUserThenRejectWhileAnalysisInFlight(userId);
         Resume resume = resumeRepository.findByUserId(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Resume not found for user id: " + userId));
 
         s3Client.deleteObject(b -> b.bucket(resume.getS3Bucket()).key(resume.getS3Key()));
         resumeRepository.delete(resume);
+    }
+
+    /**
+     * For the steps that destroy data (delete, confirm). Takes the same per-user
+     * lock as requestAnalysis, held until commit, so an Analyze cannot start
+     * between this check and the delete. Must run inside a transaction.
+     */
+    private void lockUserThenRejectWhileAnalysisInFlight(UUID userId) {
+        userRepository.findByIdForUpdate(userId);
+        rejectWhileAnalysisInFlight(userId);
+    }
+
+    private void rejectWhileAnalysisInFlight(UUID userId) {
+        if (analysisRepository.existsByUserIdAndStatusIn(userId, AnalysisService.IN_FLIGHT)) {
+            throw new AnalysisInProgressException();
+        }
     }
 
     @Transactional
@@ -127,8 +158,18 @@ public class ResumeService {
                 throw new IllegalStateException("Uploaded resume file is empty");
             }
             
-            resume.setStatus(Resume.Status.ACTIVE);
-            resumeRepository.save(resume);
+            // An Analyze that slipped in after the presign check is still running:
+            // deleting it would discard its result with no Usage record.
+            lockUserThenRejectWhileAnalysisInFlight(userId);
+
+            // Guarded PENDING → ACTIVE. Only the call that really activates a new
+            // file deletes the old Analyses; a duplicate confirm changes nothing,
+            // so it cannot delete results made since. The Usage record is kept.
+            int activated = resumeRepository.changeStatus(resume.getId(), userId, Resume.Status.PENDING,
+                    Resume.Status.ACTIVE, clock.instant());
+            if (activated == 1) {
+                analysisRepository.deleteAllForUser(userId);
+            }
         } catch (S3Exception e) {
             throw new RuntimeException("Failed to confirm resume upload", e);
         }

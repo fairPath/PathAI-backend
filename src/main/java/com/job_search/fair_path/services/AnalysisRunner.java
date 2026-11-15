@@ -17,7 +17,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.job_search.fair_path.config.AiServiceException;
+import com.job_search.fair_path.exceptions.AiServiceException;
 import com.job_search.fair_path.config.AiServiceProperties;
 import com.job_search.fair_path.dataTransferObject.analysis.AnalyzeRequestDTO;
 import com.job_search.fair_path.dataTransferObject.analysis.AnalyzeResponseDTO;
@@ -42,13 +42,15 @@ public class AnalysisRunner {
     private final ResumeAnalysisAiClient aiClient;
     private final ObjectMapper objectMapper;
     private final AiServiceProperties properties;
+    private final AnalysisService analysisService;
 
     public AnalysisRunner(AnalysisRepository analysisRepository, ResumeAnalysisAiClient aiClient,
-            ObjectMapper objectMapper, AiServiceProperties properties) {
+            ObjectMapper objectMapper, AiServiceProperties properties, AnalysisService analysisService) {
         this.analysisRepository = analysisRepository;
         this.aiClient = aiClient;
         this.objectMapper = objectMapper;
         this.properties = properties;
+        this.analysisService = analysisService;
     }
 
     // @Async: the request thread returns 202 without waiting, and the guarded
@@ -118,7 +120,8 @@ public class AnalysisRunner {
             return;
         }
 
-        int rows = analysisRepository.complete(id, response.scores(), issuesJson, response.model(),
+        // The transition and its Usage record commit together, or not at all.
+        int rows = analysisService.completeAnalysis(id, response.scores(), issuesJson, response.model(),
                 response.pipelineVersion());
         if (rows == 0) {
             log.warn("Late result discarded correlation_id={}", id);

@@ -1,6 +1,7 @@
 package com.job_search.fair_path.repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -25,6 +26,18 @@ import com.job_search.fair_path.entity.Analysis.Status;
 public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
 
     Optional<Analysis> findFirstByUserIdOrderByCreatedAtDesc(UUID userId);
+
+    /** Whether the user has an Analysis in any of these statuses (PENDING/PROCESSING = in flight). */
+    boolean existsByUserIdAndStatusIn(UUID userId, Collection<Status> statuses);
+
+    @Query("select a.userId from Analysis a where a.id = :id")
+    UUID findUserId(@Param("id") UUID id);
+
+    /** Deletes every Analysis of the user. Usage records are untouched. */
+    @Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from Analysis a where a.userId = :userId")
+    int deleteAllForUser(@Param("userId") UUID userId);
 
     /** PENDING → PROCESSING, setting started_at. */
     default int claim(UUID id, Instant startedAt) {
