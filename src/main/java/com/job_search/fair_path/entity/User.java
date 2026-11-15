@@ -59,6 +59,11 @@ public class User implements UserDetails {
     }
 
     @Override
+    public String getUsername() {
+        return username;
+    }
+
+    @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         // used to return role based auth
         return List.of();
