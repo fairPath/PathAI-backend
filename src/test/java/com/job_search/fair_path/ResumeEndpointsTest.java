@@ -105,7 +105,8 @@ class ResumeEndpointsTest extends IntegrationTestBase {
         pending.setFileName("synthetic-resume.pdf");
         pending.setStatus(Resume.Status.PENDING);
         pending = resumeRepository.save(pending);
-        Instant before = resumeUpdatedAt();
+        // Read from the row: the profile hides a Resume until it is confirmed.
+        Instant before = resumeRepository.findById(pending.getId()).orElseThrow().getUpdatedAt();
 
         when(s3Client.headObject(anyHeadObjectConsumer()))
                 .thenReturn(HeadObjectResponse.builder().contentLength(1234L).build());

@@ -10,7 +10,7 @@ import com.job_search.fair_path.entity.Analysis;
 
 /**
  * What the frontend polls. scores and issues are null until COMPLETED;
- * error_code is set only when FAILED.
+ * error_code and retryable are set only when FAILED.
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record AnalysisStatusDTO(
@@ -18,6 +18,7 @@ public record AnalysisStatusDTO(
         Analysis.Status status,
         Instant createdAt,
         String errorCode,
+        Boolean retryable,
         ScoresDTO scores,
         List<IssueDetailDTO> issues,
         String model,
