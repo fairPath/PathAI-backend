@@ -22,6 +22,24 @@ public interface SavedJobsRepository extends JpaRepository<SavedJobsEntity, UUID
     Optional<SavedJobsEntity> findForUpdate(@org.springframework.data.repository.query.Param("userId") UUID userId,
             @org.springframework.data.repository.query.Param("jobId") String jobId);
 
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = """
+            UPDATE saved_jobs SET comparison_status = :next, comparison_request_id = :requestId,
+                comparison_attempts = 0, comparison_next_attempt_at = CURRENT_TIMESTAMP,
+                comparison_lease_token = NULL, comparison_lease_until = NULL,
+                match_score = NULL, matched_skills = NULL, missing_skills = NULL,
+                relevant_experience = NULL, other_gaps = NULL, resume_id = NULL,
+                comparison_resume_updated_at = NULL, comparison_completed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id AND user_id = :userId
+                AND COALESCE(comparison_status, '') = COALESCE(:expected, '')
+            """, nativeQuery = true)
+    int changeComparison(@org.springframework.data.repository.query.Param("id") UUID id,
+            @org.springframework.data.repository.query.Param("userId") UUID userId,
+            @org.springframework.data.repository.query.Param("expected") String expected,
+            @org.springframework.data.repository.query.Param("next") String next,
+            @org.springframework.data.repository.query.Param("requestId") UUID requestId);
+
     List<SavedJobsEntity> deleteByUserIdAndJobId(UUID userId, String jobId);
 
 }

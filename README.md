@@ -97,58 +97,15 @@ S3 Access test:
 GET http://localhost:8080/api/aws/s3-test
 
 
-## Background saved-job comparisons
+## Explicit match checks with the latest resume
 
-Saving a job creates its immutable S3 resume snapshot and commits the saved job with
-`comparison_status=PENDING`. The HTTP response returns at that point, without waiting
-for the AI model. The frontend shows “Comparison in progress” and polls only pending
-job IDs every two seconds using one authenticated batch request. Completed scores and
-details update automatically in search results and saved jobs. Jobs without an active
-resume remain `NOT_REQUESTED`, with the existing manual check after resume upload.
-
-The durable queue lives in `saved_jobs` itself, so the save and queue entry are one
-transaction. The worker runs inside Spring (one comparison at a time per instance),
-claims rows using `FOR UPDATE SKIP LOCKED`, commits its 180-second lease, and calls
-the AI service outside any database transaction with a 120-second timeout. No browser
-connection or separate worker command is required. Multiple Spring instances may
-consume the queue safely. Work is at-least-once: an expired lease may repeat inference,
-but completion is fenced by saved-row ID, request ID, and claim token. Old results cannot
-overwrite a newer comparison or recreate an unsaved job.
-
-Set these in the backend `.env` or deployment environment:
-
-```properties
-FAIRPATH_AI_SERVICE_URL=http://localhost:8000
-FAIRPATH_AI_INTERNAL_TOKEN=<same value as the AI service INTERNAL_TOKEN>
-COMPARISON_WORKER_ENABLED=true
-```
-
-These variables used to be needed only in Next.js for comparison; Spring now needs them.
-Comparison and Analyze share one AI-service client, so Spring will not start without
-both variables. A stopped backend resumes pending work on restart; an interrupted attempt becomes eligible after
-its lease expires. Failed attempts retry after 10 and 20 seconds, up to three attempts;
-the job then becomes `FAILED` and the UI offers manual retry. A retry creates a new
-request ID. Saving an unchanged pending/completed comparison reuses it. Unsave deletes
-the row (and queue entry) and attempts to remove its snapshot after commit.
-
-With the existing `spring.jpa.hibernate.ddl-auto=update`, restarting Spring adds the
-queue columns and index.
-Deploy backend and frontend together: `/saved-jobs/prepare` now returns a saved-job DTO,
-and `/saved-jobs/status?jobId=...` reads statuses restricted to the authenticated user.
-The old browser-driven `/complete` and `/fail` endpoints are removed; workers persist
-results internally. The AI service API is unchanged.
-
-Snapshot copying still contributes to save latency; model inference no longer does.
-
-
-### Background comparison tests
-
-`./gradlew test` runs the worker and save-service unit tests and the PostgreSQL queue
-integration tests. The queue tests run on the throwaway Postgres container (see
-"Running tests" below), in a random schema they create and drop. They exercise
-concurrent claims, restart recovery, retry backoff, stale-result fencing,
-unsave/re-save, and final-attempt crashes. They never call the AI service or S3.
-
+Saving only persists job metadata. `POST /saved-jobs/compare` accepts `{jobId}` and
+queues a JWT-owner-scoped comparison; duplicate pending requests reuse the same ID.
+Each attempt resolves the latest ACTIVE resume key and version. Completion checks
+the resume ID, timestamp and key, discarding stale results after replacement.
+Resume snapshots and S3 copy/cleanup code have been removed. The owner is resetting
+the database; no migration or historical-data compatibility is included.
+Completed results expose `comparisonResumeUpdatedAt` and `comparisonCompletedAt`.
 
 ## Saved-job description storage
 

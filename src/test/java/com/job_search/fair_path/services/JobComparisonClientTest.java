@@ -34,7 +34,7 @@ class JobComparisonClientTest extends IntegrationTestBase {
 
     private final JobComparisonQueue.Task task = new JobComparisonQueue.Task(
             UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-            "job-1", "snapshots/resume.pdf", "Java and Go services", 1);
+            "job-1", "snapshots/resume.pdf", "Java and Go services", 1, UUID.randomUUID(), java.time.Instant.now());
 
     private void stubComparison(int status, String body) {
         aiService.stubFor(post(urlEqualTo("/job-comparison"))
