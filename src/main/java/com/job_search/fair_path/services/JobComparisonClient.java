@@ -1,10 +1,11 @@
 package com.job_search.fair_path.services;
 
+import com.job_search.fair_path.exceptions.ComparisonFailure;
+
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -42,22 +43,29 @@ public class JobComparisonClient {
         }
     }
 
-    public Result compare(JobComparisonQueue.Task task) throws Exception {
-        String body = aiServiceRestClient.post()
-                .uri("/job-comparison")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("job_id", task.jobId(), "s3_key", task.s3Key(), "job_description", task.description()))
-                .retrieve()
-                .onStatus(HttpStatusCode::isError, (request, response) -> {
-                    // The response body may contain private data; never include it in worker logs.
-                    throw new IllegalStateException("AI service returned HTTP " + response.getStatusCode().value());
-                })
-                .body(String.class);
-        Result result = mapper.readerFor(Result.class)
-                .without(com.fasterxml.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT)
-                .readValue(body);
-        if (result == null) throw new IllegalArgumentException("AI returned an empty comparison result");
-        result.validate();
-        return result;
+    public Result compare(JobComparisonQueue.Task task) {
+        try {
+            String body = aiServiceRestClient.post()
+                    .uri("/job-comparison")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("correlation_id", task.requestId().toString(),
+                            "job_id", task.jobId(), "s3_key", task.s3Key(),
+                            "job_description", task.description()))
+                    .retrieve()
+                    .body(String.class);
+            var json = mapper.readTree(body == null ? "" : body);
+            if (json == null || !task.requestId().toString().equals(json.path("correlation_id").asText()))
+                return null;
+            Result result = mapper.readerFor(Result.class)
+                    .without(com.fasterxml.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT)
+                    .readValue(body);
+            result.validate();
+            return result;
+        } catch (ComparisonFailure error) {
+            throw error;
+        } catch (Exception error) {
+            throw AiServiceErrors.comparisonFailure(error, task.requestId());
+        }
     }
+
 }

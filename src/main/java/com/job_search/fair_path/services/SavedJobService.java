@@ -11,6 +11,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.security.core.Authentication;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,14 +31,16 @@ public class SavedJobService {
     private final SavedJobsRepository savedJobsRepository;
     private final UserRepository userRepository;
     private final ResumeRepository resumeRepository;
+    private final ApplicationEventPublisher events;
 
     public SavedJobService(
             SavedJobsRepository savedJobsRepository,
             UserRepository userRepository,
-            ResumeRepository resumeRepository) {
+            ResumeRepository resumeRepository, ApplicationEventPublisher events) {
         this.savedJobsRepository = savedJobsRepository;
         this.userRepository = userRepository;
         this.resumeRepository = resumeRepository;
+        this.events = events;
     }
 
     public List<JobResultDTO> getSavedJobsForUser(Authentication authentication) {
@@ -112,9 +115,11 @@ public class SavedJobService {
         if ("PENDING".equals(job.getComparisonStatus())) return toDto(job);
         resumeRepository.findByUserId(userId).filter(r -> r.getStatus() == Resume.Status.ACTIVE)
                 .orElseThrow(() -> new ComparisonFailure("RESUME_REQUIRED", false));
+        UUID requestId = UUID.randomUUID();
         int changed = savedJobsRepository.changeComparison(job.getId(), userId, job.getComparisonStatus(),
-                "PENDING", UUID.randomUUID());
+                "PENDING", requestId);
         if (changed != 1) throw new ComparisonFailure("COMPARISON_IN_PROGRESS", true);
+        events.publishEvent(new ComparisonRequestedEvent(requestId));
         return toDto(savedJobsRepository.findById(job.getId()).orElseThrow());
     }
 
@@ -158,6 +163,8 @@ public class SavedJobService {
         dto.setOtherGaps(job.getOtherGaps());
         dto.setComparisonStatus(job.getComparisonStatus());
         dto.setComparisonRequestId(job.getComparisonRequestId());
+        dto.setComparisonErrorCode(job.getComparisonErrorCode());
+        dto.setComparisonRetryable(job.getComparisonRetryable());
         dto.setComparisonResumeUpdatedAt(job.getComparisonResumeUpdatedAt());
         dto.setComparisonCompletedAt(job.getComparisonCompletedAt());
         return dto;

@@ -11,6 +11,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import com.job_search.fair_path.services.JobComparisonWorker;
+import static org.mockito.Mockito.*;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.context.jdbc.SqlMergeMode;
 import org.springframework.test.context.jdbc.SqlMergeMode.MergeMode;
@@ -67,8 +70,13 @@ public abstract class IntegrationTestBase {
     @Autowired
     protected MutableClock clock;
 
+    @MockitoSpyBean
+    protected JobComparisonWorker comparisonWorker;
+
     @BeforeEach
     void resetAiServiceStubAndClock() {
+        // Comparison tests drive execution explicitly unless testing after-commit dispatch.
+        doNothing().when(comparisonWorker).onComparisonRequested(any());
         aiService.resetAll();
         clock.reset();
     }

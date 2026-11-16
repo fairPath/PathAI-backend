@@ -97,15 +97,64 @@ S3 Access test:
 GET http://localhost:8080/api/aws/s3-test
 
 
-## Explicit match checks with the latest resume
+## Saved-job match checks
 
-Saving only persists job metadata. `POST /saved-jobs/compare` accepts `{jobId}` and
-queues a JWT-owner-scoped comparison; duplicate pending requests reuse the same ID.
-Each attempt resolves the latest ACTIVE resume key and version. Completion checks
-the resume ID, timestamp and key, discarding stale results after replacement.
-Resume snapshots and S3 copy/cleanup code have been removed. The owner is resetting
-the database; no migration or historical-data compatibility is included.
-Completed results expose `comparisonResumeUpdatedAt` and `comparisonCompletedAt`.
+Saving through `POST /saved-jobs/prepare` only persists the job. An explicit
+`POST /saved-jobs/compare` with `{ jobId }` queues comparison and returns 202.
+The JWT owner scopes every saved-job and active-resume lookup. Repeated clicks
+while PENDING reuse the existing request; a later manual check creates a new request ID.
+
+Both Analysis and comparison dispatch after commit through `AiRequestExecution`.
+It dispatches to independent fixed-size `@Async` pools: eight Analysis threads
+and eight comparison threads, never a scheduler thread. Configure their sizes with
+`fairpath.ai-execution.analysis-threads` and `comparison-threads`. Each pool retains
+the original queue behavior; requests beyond its worker capacity wait in its queue.
+Features supply a request/success operation; the shared component owns execution
+and Analysis's original one-retry policy.
+
+Each comparison claim resolves the latest ACTIVE resume and its live S3 key.
+Request, lease and resume-version guards reject stale results. A changed resume
+ends this request with `RESUME_CHANGED`; the user can request a new comparison.
+The same request is reused for the single connection-level retry.
+
+Both calls automatically retry only a refused connection or HTTP 503 without a
+valid envelope, once after `fairpath.ai-service.retry-delay` (default 5 seconds).
+Timeouts, typed provider errors, other statuses and result-storage failures do not
+automatically replay inference. Manual retryability follows Analysis's original
+stored-code policy: only `TEXT_NOT_EXTRACTABLE` and `FILE_UNREADABLE` are permanent.
+Feature preconditions such as a missing active resume remain explicit errors.
+User-session authentication and internal AI authentication remain separate.
+
+`aiServiceRestClient` / `AiServiceErrors` share bounded safe error decoding and
+outcome mapping. Valid `Retry-After` metadata is still decoded, but this restored
+Analysis policy uses its original fixed delay and does not automatically retry
+typed provider rate limits. The AI gateway still sets `store=False`.
+
+The former comparison scheduler and durable three-attempt backoff are removed.
+Like Analysis on current main, events interrupted by a restart are not replayed;
+stale-work recovery remains follow-up work. Comparison lease guards default to
+300 seconds to cover two 120-second calls plus the retry wait. Expired claims are
+failed when the comparison claim path next runs; no background inference replay
+is scheduled. The DTO continues exposing status, error/retryability and version fields.
+
+The UI polls pending jobs every two seconds. Permanent failures disable Check match
+for that page session, with fixed error copy; refresh permits another deliberate attempt.
+Only a user-session 401 redirects to login. Internal AI token failures use the
+original Analysis INTERNAL_ERROR/manual-retry behavior and never redirect users.
+
+Required backend environment: `FAIRPATH_AI_SERVICE_URL` and
+`FAIRPATH_AI_INTERNAL_TOKEN` (matching AI `INTERNAL_TOKEN`), plus existing DB/JWT/AWS
+settings. The AI bucket must match the active resume bucket.
+`COMPARISON_WORKER_ENABLED` controls worker enablement.
+
+Deploy the frontend, backend and AI service changes together. Hibernate's existing
+`ddl-auto=update` adds nullable error/retryability/version/completion columns on
+human-run startup. No migration scripts are included; agents never start the app
+against the shared database.
+
+`./gradlew test` uses disposable Testcontainers PostgreSQL and WireMock.
+Tests cover save-only behavior, explicit comparison, ownership, permanent failures,
+concurrent claims, lease recovery and stale-resume result fencing.
 
 ## Saved-job description storage
 

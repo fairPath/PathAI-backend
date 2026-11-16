@@ -71,6 +71,10 @@ public class SavedJobsEntity {
     @Column(name = "comparison_status", length = 20)
     private String comparisonStatus;
 
+    @Column(name = "comparison_error_code")
+    private String comparisonErrorCode;
+    @Column(name = "comparison_retryable")
+    private Boolean comparisonRetryable;
     @Column(name = "comparison_resume_updated_at")
     private Instant comparisonResumeUpdatedAt;
     @Column(name = "comparison_completed_at")
