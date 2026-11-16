@@ -80,6 +80,22 @@ public final class AiServiceErrors {
         return errorCode == null || !TERMINAL_ANALYSIS_CODES.contains(errorCode);
     }
 
+    /**
+     * Whether a retry can help an Analysis that failed with {@code storedCode}.
+     * Both signals must say yes, as for job comparison: the AI service's
+     * {@code retryable} flag (used only when the stored code is the one it
+     * sent, not a Spring-written replacement) and Analysis's own list of
+     * permanent codes. So a new permanent code needs no list edit, and the
+     * unreadable-file codes stay permanent even if a flag were wrong.
+     */
+    public static boolean analysisRetryable(Throwable error, String storedCode) {
+        boolean byCode = isRetryableAnalysisCode(storedCode);
+        if (error instanceof AiServiceException ai && ai.hasEnvelope() && ai.errorCode().equals(storedCode)) {
+            return byCode && ai.retryable();
+        }
+        return byCode;
+    }
+
     public static boolean canRetryAnalysis(Throwable error, int attempt, int maxAttempts) {
         return attempt < maxAttempts && isUnreachable(error);
     }

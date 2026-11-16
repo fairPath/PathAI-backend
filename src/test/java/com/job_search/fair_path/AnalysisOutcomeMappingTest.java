@@ -225,6 +225,49 @@ class AnalysisOutcomeMappingTest extends AnalysisTestSupport {
                 .andExpect(jsonPath("$.resumeId").value(nullValue()));
     }
 
+    @Test
+    void aProviderConfigurationErrorIsNotRetryable() throws Exception {
+        UUID id = insertPending();
+        aiService.stubFor(post(urlEqualTo("/resume")).willReturn(envelope(502, id.toString(),
+                "AI_CONFIGURATION_ERROR", false)));
+
+        runner.run(requestFor(id));
+
+        assertFailed(id, "AI_CONFIGURATION_ERROR", false);
+    }
+
+    @Test
+    void aCodeTheAiServiceCallsPermanentNeedsNoListEdit() throws Exception {
+        UUID id = insertPending();
+        aiService.stubFor(post(urlEqualTo("/resume")).willReturn(envelope(502, id.toString(),
+                "INVALID_AI_REQUEST", false)));
+
+        runner.run(requestFor(id));
+
+        assertFailed(id, "INVALID_AI_REQUEST", false);
+    }
+
+    @Test
+    void anUnreadableFileStaysPermanentEvenIfTheFlagSaysRetry() throws Exception {
+        UUID id = insertPending();
+        aiService.stubFor(post(urlEqualTo("/resume")).willReturn(envelope(422, id.toString(),
+                "FILE_UNREADABLE", true)));
+
+        runner.run(requestFor(id));
+
+        assertFailed(id, "FILE_UNREADABLE", false);
+    }
+
+    @Test
+    void aFailureStoredWithoutAFlagDerivesRetryabilityFromItsCode() throws Exception {
+        UUID id = insertPending();
+        analysisRepository.claim(id, java.time.Instant.now());
+
+        analysisRepository.failProcessing(id, "FILE_UNREADABLE");
+
+        assertFailed(id, "FILE_UNREADABLE", false);
+    }
+
     private void assertFailed(UUID id, String errorCode, boolean retryable) throws Exception {
         pollLatest()
                 .andExpect(jsonPath("$.analysis_id").value(id.toString()))

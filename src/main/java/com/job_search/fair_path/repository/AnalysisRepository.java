@@ -50,9 +50,14 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
                 issuesJson, model, pipelineVersion, Status.PROCESSING, Status.COMPLETED);
     }
 
-    /** PROCESSING → FAILED with an error code. */
+    /** PROCESSING → FAILED with an error code, leaving retryable to be derived from the code. */
     default int failProcessing(UUID id, String errorCode) {
-        return markFailed(id, errorCode, Status.PROCESSING, Status.FAILED);
+        return failProcessing(id, errorCode, null);
+    }
+
+    /** PROCESSING → FAILED with an error code and whether a retry can help (null: derive from the code). */
+    default int failProcessing(UUID id, String errorCode, Boolean retryable) {
+        return markFailed(id, errorCode, retryable, Status.PROCESSING, Status.FAILED);
     }
 
     @Transactional
@@ -82,9 +87,10 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
     @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
-            update Analysis a set a.status = :to, a.errorCode = :errorCode
+            update Analysis a set a.status = :to, a.errorCode = :errorCode, a.retryable = :retryable
             where a.id = :id and a.status = :from
             """)
     int markFailed(@Param("id") UUID id, @Param("errorCode") String errorCode,
+            @Param("retryable") Boolean retryable,
             @Param("from") Status from, @Param("to") Status to);
 }

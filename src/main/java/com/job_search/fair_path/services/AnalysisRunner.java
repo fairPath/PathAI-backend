@@ -103,7 +103,7 @@ public class AnalysisRunner {
             String errorCode = AiServiceErrors.analysisErrorCode(e);
             log.warn("AI-service call failed correlation_id={} error={} error_code={}", id,
                     e.getClass().getSimpleName(), errorCode);
-            fail(id, errorCode);
+            fail(id, errorCode, AiServiceErrors.analysisRetryable(e, errorCode));
             return;
         }
 
@@ -129,7 +129,11 @@ public class AnalysisRunner {
     }
 
     private void fail(UUID id, String errorCode) {
-        if (analysisRepository.failProcessing(id, errorCode) == 0) {
+        fail(id, errorCode, AnalysisErrorCodes.isRetryable(errorCode));
+    }
+
+    private void fail(UUID id, String errorCode, boolean retryable) {
+        if (analysisRepository.failProcessing(id, errorCode, retryable) == 0) {
             log.warn("Late failure discarded correlation_id={}", id);
         }
     }

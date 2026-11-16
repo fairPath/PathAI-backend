@@ -74,6 +74,14 @@ public class Analysis {
     @Column(name = "error_code")
     private String errorCode;
 
+    /**
+     * Whether a retry can help, stored with the failure as job comparison does.
+     * Null on rows written before this column existed: the API then derives it
+     * from error_code (see AnalysisErrorCodes).
+     */
+    @Column(name = "retryable")
+    private Boolean retryable;
+
     @Column(name = "score_formatting")
     private Integer scoreFormatting;
 

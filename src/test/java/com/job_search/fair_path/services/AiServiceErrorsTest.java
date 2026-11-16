@@ -14,6 +14,7 @@ import org.springframework.mock.http.client.MockClientHttpResponse;
 import org.springframework.web.client.RestClientException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.job_search.fair_path.exceptions.AiServiceException;
 
 class AiServiceErrorsTest {
     private static final UUID ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -85,4 +86,28 @@ class AiServiceErrorsTest {
         assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isTrue();
     }
 
+    @Test
+    void analysisFollowsTheAiServicesRetryableFlagWithoutAListEdit() {
+        var permanent = new AiServiceException(502, ID.toString(), "AI_CONFIGURATION_ERROR", false, 0);
+        var invalid = new AiServiceException(502, ID.toString(), "INVALID_AI_REQUEST", false, 0);
+        var transientFailure = new AiServiceException(503, ID.toString(), "AI_UNAVAILABLE", true, 0);
+        assertThat(AiServiceErrors.analysisRetryable(permanent, "AI_CONFIGURATION_ERROR")).isFalse();
+        assertThat(AiServiceErrors.analysisRetryable(invalid, "INVALID_AI_REQUEST")).isFalse();
+        assertThat(AiServiceErrors.analysisRetryable(transientFailure, "AI_UNAVAILABLE")).isTrue();
+    }
+
+    @Test
+    void analysisKeepsItsPermanentCodesEvenIfTheFlagSaysRetry() {
+        var wrongFlag = new AiServiceException(422, ID.toString(), "FILE_UNREADABLE", true, 0);
+        assertThat(AiServiceErrors.analysisRetryable(wrongFlag, "FILE_UNREADABLE")).isFalse();
+    }
+
+    @Test
+    void aSpringWrittenCodeIgnoresTheFlagOfTheErrorItReplaced() {
+        // A 401 from the AI service is stored as INTERNAL_ERROR (our token, not the user's file).
+        var rejectedToken = new AiServiceException(401, ID.toString(), "AI_AUTHENTICATION_FAILED", false, 0);
+        assertThat(AiServiceErrors.analysisRetryable(rejectedToken, "INTERNAL_ERROR")).isTrue();
+        assertThat(AiServiceErrors.analysisRetryable(new SocketTimeoutException("slow"), "ANALYSIS_TIMED_OUT")).isTrue();
+        assertThat(AiServiceErrors.analysisRetryable(new RuntimeException("boom"), "INTERNAL_ERROR")).isTrue();
+    }
 }

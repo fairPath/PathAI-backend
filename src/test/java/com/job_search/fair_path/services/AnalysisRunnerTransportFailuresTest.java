@@ -57,7 +57,7 @@ class AnalysisRunnerTransportFailuresTest {
         runner.run(request);
 
         verify(aiClient, times(2)).analyze(request);
-        verify(repository).failProcessing(id, "INTERNAL_ERROR");
+        verify(repository).failProcessing(id, "INTERNAL_ERROR", true);
     }
 
     @Test
@@ -69,7 +69,7 @@ class AnalysisRunnerTransportFailuresTest {
         runner.run(request);
 
         verify(aiClient, times(2)).analyze(request);
-        verify(repository, never()).failProcessing(any(UUID.class), anyString());
+        verify(repository, never()).failProcessing(any(UUID.class), anyString(), any());
     }
 
     @Test
@@ -80,6 +80,6 @@ class AnalysisRunnerTransportFailuresTest {
         runner.run(request);
 
         verify(aiClient, times(1)).analyze(request);
-        verify(repository).failProcessing(id, "ANALYSIS_TIMED_OUT");
+        verify(repository).failProcessing(id, "ANALYSIS_TIMED_OUT", true);
     }
 }
