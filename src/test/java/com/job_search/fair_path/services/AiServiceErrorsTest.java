@@ -31,7 +31,7 @@ class AiServiceErrorsTest {
     }
 
     @Test
-    void typedTerminalFailureOverridesTransientStatusAndPreservesRetryAfter() throws Exception {
+    void sharedAnalysisCodePolicyPreservesRetryHeaderMetadata() throws Exception {
         var response = new MockClientHttpResponse(("{\"correlation_id\":\"" + ID
                 + "\",\"error_code\":\"AI_CONFIGURATION_ERROR\",\"retryable\":false}")
                 .getBytes(StandardCharsets.UTF_8), HttpStatus.BAD_GATEWAY);
@@ -39,42 +39,25 @@ class AiServiceErrorsTest {
         var error = AiServiceErrors.decode(response, new ObjectMapper(), 8192);
         assertThat(error.hasEnvelope()).isTrue();
         assertThat(error.retryAfterSeconds()).isEqualTo(60);
-        assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isFalse();
+        assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isTrue();
     }
 
     @Test
     void nestedResponseBodyTimeoutHasTheSameClassificationForBothFeatures() {
         var error = new RestClientException("Synthetic wrapper", new SocketTimeoutException("Synthetic timeout"));
         assertThat(AiServiceErrors.analysisErrorCode(error)).isEqualTo("ANALYSIS_TIMED_OUT");
-        assertThat(AiServiceErrors.comparisonFailure(error, ID).errorCode()).isEqualTo("AI_TIMED_OUT");
+        assertThat(AiServiceErrors.comparisonFailure(error, ID).errorCode()).isEqualTo("ANALYSIS_TIMED_OUT");
         assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isTrue();
     }
 
     @Test
-    void invalidModelJsonIsNotMistakenForATransportFailure() {
+    void invalidModelJsonUsesOriginalAnalysisManualRetryPolicy() {
         var error = org.junit.jupiter.api.Assertions.assertThrows(
                 com.fasterxml.jackson.core.JsonProcessingException.class,
                 () -> new ObjectMapper().readTree("not JSON"));
-        assertThat(AiServiceErrors.isTransientTransport(error)).isFalse();
-        assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isFalse();
-        assertThat(AiServiceErrors.comparisonFailure(error, ID).errorCode()).isEqualTo("INVALID_AI_RESPONSE");
+        assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isTrue();
+        assertThat(AiServiceErrors.comparisonFailure(error, ID).errorCode()).isEqualTo("INTERNAL_ERROR");
     }
-    @Test
-    void analysisRetainsItsExistingRetryEligibilityAndAttemptLimit() {
-        var refused = new RestClientException("Synthetic wrapper", new java.net.ConnectException("Synthetic refusal"));
-        assertThat(AiServiceErrors.canRetryAnalysis(refused, 1, 2)).isTrue();
-        assertThat(AiServiceErrors.canRetryAnalysis(refused, 2, 2)).isFalse();
-        assertThat(AiServiceErrors.canRetryAnalysis(
-                new RestClientException("Synthetic wrapper", new SocketTimeoutException("Synthetic timeout")), 1, 2)).isFalse();
-    }
-
-    @Test
-    void temporaryStorageFailuresAreDistinctFromPermanentDatabaseErrors() {
-        assertThat(AiServiceErrors.isTransientDatabase(new org.springframework.dao.CannotAcquireLockException("Synthetic lock timeout"))).isTrue();
-        assertThat(AiServiceErrors.isTransientDatabase(new org.springframework.jdbc.BadSqlGrammarException(
-                "Synthetic query", "SELECT synthetic", new java.sql.SQLException("Synthetic invalid column")))).isFalse();
-    }
-
     @Test
     void oversizedErrorBodyFallsBackToItsHttpStatusWithoutReadingItAll() throws Exception {
         var response = new MockClientHttpResponse(("{\"detail\":\"" + "x".repeat(1024) + "\"}")

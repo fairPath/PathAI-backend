@@ -1,6 +1,5 @@
 package com.job_search.fair_path.services;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -8,7 +7,6 @@ import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -16,7 +14,6 @@ import org.springframework.transaction.event.TransactionalEventListener;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.job_search.fair_path.exceptions.AiServiceException;
-import com.job_search.fair_path.config.AiServiceProperties;
 import com.job_search.fair_path.dataTransferObject.analysis.AnalyzeRequestDTO;
 import com.job_search.fair_path.dataTransferObject.analysis.AnalyzeResponseDTO;
 import com.job_search.fair_path.dataTransferObject.analysis.ScoresDTO;
@@ -39,25 +36,24 @@ public class AnalysisRunner {
     private final AnalysisRepository analysisRepository;
     private final ResumeAnalysisAiClient aiClient;
     private final ObjectMapper objectMapper;
-    private final AiServiceProperties properties;
+    private final AiRequestExecution execution;
     private final AnalysisService analysisService;
 
     public AnalysisRunner(AnalysisRepository analysisRepository, ResumeAnalysisAiClient aiClient,
-            ObjectMapper objectMapper, AiServiceProperties properties, AnalysisService analysisService) {
+            ObjectMapper objectMapper, AiRequestExecution execution, AnalysisService analysisService) {
         this.analysisRepository = analysisRepository;
         this.aiClient = aiClient;
         this.objectMapper = objectMapper;
-        this.properties = properties;
+        this.execution = execution;
         this.analysisService = analysisService;
     }
 
-    // @Async: the request thread returns 202 without waiting, and the guarded
+    // The shared @Async executor returns immediately, and the guarded
     // updates below each run in their own transaction instead of joining the
     // one that has already committed.
-    @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onAnalysisRequested(AnalysisRequestedEvent event) {
-        run(event.request());
+        execution.execute(() -> run(event.request()));
     }
 
     /**
@@ -90,7 +86,7 @@ public class AnalysisRunner {
 
         AnalyzeResponseDTO response;
         try {
-            response = callWithRetry(id, request);
+            response = execution.call(id, () -> aiClient.analyze(request));
         } catch (RuntimeException e) {
             // The envelope belongs to another Analysis: leave the row, like a mismatched 200.
             if (e instanceof AiServiceException ex && ex.correlationId() != null
@@ -131,30 +127,6 @@ public class AnalysisRunner {
     private void fail(UUID id, String errorCode) {
         if (analysisRepository.failProcessing(id, errorCode) == 0) {
             log.warn("Late failure discarded correlation_id={}", id);
-        }
-    }
-
-    /**
-     * By default one automatic retry, only for failures that say the AI service wasn't
-     * reachable (a refused connection, or a 503 with no envelope: a restart or
-     * a proxy). The row stays PROCESSING during the wait; the sweep covers a
-     * restart in the middle of it. Every other failure is final.
-     */
-    private AnalyzeResponseDTO callWithRetry(UUID id, AnalyzeRequestDTO request) {
-        for (int attempt = 1; ; attempt++) {
-            try {
-                return aiClient.analyze(request);
-            } catch (RuntimeException failure) {
-                if (!AiServiceErrors.canRetryAnalysis(failure, attempt, properties.analysisMaxAttempts())) throw failure;
-                Duration delay = properties.retryDelay();
-                log.warn("AI service unreachable, retrying in {} correlation_id={} attempt={}", delay, id, attempt);
-                try {
-                    if (!delay.isZero()) Thread.sleep(delay.toMillis());
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    throw failure;
-                }
-            }
         }
     }
 

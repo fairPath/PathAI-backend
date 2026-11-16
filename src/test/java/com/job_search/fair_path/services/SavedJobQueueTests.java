@@ -27,7 +27,7 @@ class SavedJobQueueTests {
     private final UserRepository users = mock(UserRepository.class);
     private final ResumeRepository resumes = mock(ResumeRepository.class);
     private final S3Client s3 = mock(S3Client.class);
-    private final SavedJobService service = new SavedJobService(jobs, users, resumes);
+    private final SavedJobService service = new SavedJobService(jobs, users, resumes, mock(org.springframework.context.ApplicationEventPublisher.class));
     private final User user = new User();
     private final Resume resume = new Resume();
     private final SavedJobsEntity saved = new SavedJobsEntity();

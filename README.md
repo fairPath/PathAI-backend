@@ -104,38 +104,40 @@ Saving through `POST /saved-jobs/prepare` only persists the job. An explicit
 The JWT owner scopes every saved-job and active-resume lookup. Repeated clicks
 while PENDING reuse the existing request; a later manual check creates a new request ID.
 
-On each attempt, the worker resolves the user's latest ACTIVE row in `resume`.
-It sends that row's live S3 key to the AI service. No resume snapshot is created.
-The completion update checks the resume ID, update timestamp and S3 key again:
-a changed resume discards the stale result and retries against the latest version.
+Both Analysis and comparison dispatch after commit through `AiRequestExecution`.
+It uses Spring's original default `@Async` pool (Boot default: 8 core threads),
+never a scheduler thread. Features supply a request/success operation; the shared
+component owns execution and Analysis's original one-retry policy.
 
-The durable queue remains in `saved_jobs`, with lease and request guards.
-A dedicated `comparisonScheduler` runs one comparison at a time per instance;
-the default `taskScheduler` remains available for scheduled maintenance.
-Multiple instances can safely claim using `FOR UPDATE SKIP LOCKED`.
+Each comparison claim resolves the latest ACTIVE resume and its live S3 key.
+Request, lease and resume-version guards reject stale results. A changed resume
+ends this request with `RESUME_CHANGED`; the user can request a new comparison.
+The same request is reused for the single connection-level retry.
 
-Spring and the AI service share a correlated contract: `correlation_id` is the
-comparison request ID; success echoes it; errors use
-`{ correlation_id, error_code, retryable }`. The shared `aiServiceRestClient`
-owns transport settings and delegates every error response to `AiServiceErrors`.
-Analysis and comparison reuse that decoder, nested transport-exception checks, and
-retry classification; feature clients must not install their own error parser.
-Existing policy profiles are preserved: Analysis automatically retries a refused
-connection or bare 503 once, while comparison allows three total transient attempts
-with 10/20-second backoff and Retry-After. Timeouts inside response-body wrappers
-remain retryable for comparison, and temporary result-storage failures also retry. The AI model gateway sets `store=False`.
+Both calls automatically retry only a refused connection or HTTP 503 without a
+valid envelope, once after `fairpath.ai-service.retry-delay` (default 5 seconds).
+Timeouts, typed provider errors, other statuses and result-storage failures do not
+automatically replay inference. Manual retryability follows Analysis's original
+stored-code policy: only `TEXT_NOT_EXTRACTABLE` and `FILE_UNREADABLE` are permanent.
+Feature preconditions such as a missing active resume remain explicit errors.
+User-session authentication and internal AI authentication remain separate.
 
-Permanent errors fail immediately. Connection failures, 408/429/502/503/504
-responses can retry, unless a typed envelope declares a permanent cause.
-The worker honors Retry-After and defaults to three attempts with 10/20-second backoff and a 180-second
-lease; these limits are configurable under `fairpath.comparison-worker`.
-The DTO exposes `comparisonErrorCode`, `comparisonRetryable`,
-`comparisonResumeUpdatedAt` and `comparisonCompletedAt`.
+`aiServiceRestClient` / `AiServiceErrors` share bounded safe error decoding and
+outcome mapping. Valid `Retry-After` metadata is still decoded, but this restored
+Analysis policy uses its original fixed delay and does not automatically retry
+typed provider rate limits. The AI gateway still sets `store=False`.
+
+The former comparison scheduler and durable three-attempt backoff are removed.
+Like Analysis on current main, events interrupted by a restart are not replayed;
+stale-work recovery remains follow-up work. Comparison lease guards default to
+300 seconds to cover two 120-second calls plus the retry wait. Expired claims are
+failed when the comparison claim path next runs; no background inference replay
+is scheduled. The DTO continues exposing status, error/retryability and version fields.
 
 The UI polls pending jobs every two seconds. Permanent failures disable Check match
 for that page session, with fixed error copy; refresh permits another deliberate attempt.
-Only a user-session 401 redirects to login. An internal AI token error is a terminal
-service/configuration failure, never a login redirect.
+Only a user-session 401 redirects to login. Internal AI token failures use the
+original Analysis INTERNAL_ERROR/manual-retry behavior and never redirect users.
 
 Required backend environment: `FAIRPATH_AI_SERVICE_URL` and
 `FAIRPATH_AI_INTERNAL_TOKEN` (matching AI `INTERNAL_TOKEN`), plus existing DB/JWT/AWS

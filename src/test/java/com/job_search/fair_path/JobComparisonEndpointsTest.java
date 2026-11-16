@@ -24,6 +24,9 @@ import com.job_search.fair_path.support.AnalysisTestSupport;
 class JobComparisonEndpointsTest extends AnalysisTestSupport {
     @Autowired private JobComparisonWorker worker;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
+    @Autowired private com.job_search.fair_path.services.SavedJobService savedJobService;
+    @Autowired private org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor applicationTaskExecutor;
 
     private void save() throws Exception {
         mockMvc.perform(post("/saved-jobs/prepare").header("Authorization", bearerToken)
@@ -94,8 +97,8 @@ class JobComparisonEndpointsTest extends AnalysisTestSupport {
         worker.processNext();
         mockMvc.perform(get("/saved-jobs/status").param("jobId", "job").header("Authorization", bearerToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].comparisonStatus").value("FAILED"))
-                .andExpect(jsonPath("$[0].comparisonErrorCode").value("AI_AUTHENTICATION_FAILED"))
-                .andExpect(jsonPath("$[0].comparisonRetryable").value(false));
+                .andExpect(jsonPath("$[0].comparisonErrorCode").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$[0].comparisonRetryable").value(true));
         aiService.verify(1, postRequestedFor(urlEqualTo("/job-comparison")));
         // A fresh, deliberate request (e.g. after refreshing) gets a new generation.
         assertNotNull(JsonPath.read(compare(), "$.comparisonRequestId"));
@@ -108,14 +111,35 @@ class JobComparisonEndpointsTest extends AnalysisTestSupport {
         aiService.stubFor(com.github.tomakehurst.wiremock.client.WireMock.post(urlEqualTo("/job-comparison"))
                 .willReturn(aResponse().withStatus(503)));
         worker.processNext();
-        mockMvc.perform(get("/saved-jobs/status").param("jobId", "job").header("Authorization", bearerToken))
-                .andExpect(jsonPath("$[0].comparisonStatus").value("PENDING"));
         worker.processNext();
         worker.processNext();
         mockMvc.perform(get("/saved-jobs/status").param("jobId", "job").header("Authorization", bearerToken))
                 .andExpect(jsonPath("$[0].comparisonStatus").value("FAILED"))
                 .andExpect(jsonPath("$[0].comparisonRetryable").value(true));
-        aiService.verify(3, postRequestedFor(urlEqualTo("/job-comparison")));
+        aiService.verify(2, postRequestedFor(urlEqualTo("/job-comparison")));
+    }
+
+    @Test
+    void comparisonDispatchesAfterCommitAndRollbackNeverCallsAi() throws Exception {
+        save();
+        doCallRealMethod().when(comparisonWorker).onComparisonRequested(any());
+        aiService.stubFor(com.github.tomakehurst.wiremock.client.WireMock.post(urlEqualTo("/job-comparison"))
+                .willReturn(aResponse().withStatus(503)));
+        var transactions = new org.springframework.transaction.support.TransactionTemplate(
+                transactionManager);
+        transactions.executeWithoutResult(transaction -> {
+            savedJobService.requestComparison("job",
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(user, null));
+            aiService.verify(0, postRequestedFor(urlEqualTo("/job-comparison")));
+            transaction.setRollbackOnly();
+        });
+        assertEquals("NOT_REQUESTED", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs WHERE job_id = 'job'", String.class));
+        aiService.verify(0, postRequestedFor(urlEqualTo("/job-comparison")));
+        compare();
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(10)).untilAsserted(() ->
+            assertEquals("FAILED", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs WHERE job_id = 'job'", String.class)));
+        aiService.verify(2, postRequestedFor(urlEqualTo("/job-comparison")));
+        assertEquals(8, applicationTaskExecutor.getCorePoolSize());
     }
 
     @Test
