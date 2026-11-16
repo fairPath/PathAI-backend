@@ -3,7 +3,6 @@ package com.job_search.fair_path.dataTransferObject;
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import lombok.NoArgsConstructor;
 import lombok.Getter;
@@ -24,7 +23,6 @@ public class JobResultDTO {
     private Double salaryMax;
     private Boolean saved;
     private UUID resumeId;
-    private Map<String, Object> resumeSnapshot;
     private BigDecimal matchScore;
     private List<String> matchedSkills;
     private List<String> missingSkills;
@@ -32,6 +30,8 @@ public class JobResultDTO {
     private List<String> otherGaps;
     private String comparisonStatus;
     private UUID comparisonRequestId;
+    private java.time.Instant comparisonResumeUpdatedAt;
+    private java.time.Instant comparisonCompletedAt;
 
     public JobResultDTO(String jobId, String title, String companyName, LocalDateTime dateCreated, String location,
             String redirectUrl,

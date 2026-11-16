@@ -56,6 +56,24 @@ public class SaveJobController {
 
     }
 
+    @PostMapping("/compare")
+    public ResponseEntity<?> compare(Authentication authentication, @RequestBody CompareRequest request) {
+        if (request.jobId() == null || request.jobId().isBlank() || request.jobId().length() > 200)
+            return ResponseEntity.badRequest().body(new com.job_search.fair_path.dataTransferObject.analysis.ErrorEnvelopeDTO(
+                    null, "INVALID_COMPARISON_REQUEST", false));
+        try {
+            return ResponseEntity.accepted().body(savedJobService.requestComparison(request.jobId(), authentication));
+        } catch (com.job_search.fair_path.exceptions.ComparisonFailure error) {
+            int status = "JOB_NOT_FOUND".equals(error.errorCode()) ? 404
+                    : "COMPARISON_IN_PROGRESS".equals(error.errorCode()) ? 409 : 422;
+            return ResponseEntity.status(status).body(
+                    new com.job_search.fair_path.dataTransferObject.analysis.ErrorEnvelopeDTO(
+                        java.util.UUID.randomUUID().toString(), error.errorCode(), error.retryable()));
+        }
+    }
+
+    public record CompareRequest(String jobId) {}
+
     @GetMapping("/status")
     public ResponseEntity<List<JobResultDTO>> getComparisonStatuses(Authentication authentication,
             @RequestParam("jobId") List<String> jobIds) {

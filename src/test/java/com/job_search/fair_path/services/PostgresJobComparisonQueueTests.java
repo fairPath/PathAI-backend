@@ -27,6 +27,8 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
     private String schema;
     private UUID id;
     private UUID requestId;
+    private final UUID userId = UUID.randomUUID();
+    private final UUID resumeId = UUID.randomUUID();
     private final JobComparisonClient.Result result =
             new JobComparisonClient.Result(80, List.of("Java"), List.of(), "Experience", List.of());
 
@@ -42,13 +44,16 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
         var isolatedSource = new DriverManagerDataSource(url, username, password);
         isolatedSource.setSchema(schema);
         jdbc = new JdbcTemplate(isolatedSource);
+        jdbc.execute("CREATE TABLE resume (id uuid PRIMARY KEY, user_id uuid UNIQUE, s3_key text, status text, updated_at timestamptz)");
+        jdbc.update("INSERT INTO resume VALUES (?, ?, 'active.pdf', 'ACTIVE', CURRENT_TIMESTAMP)", resumeId, userId);
         jdbc.execute("""
                 CREATE TABLE saved_jobs (
-                    id uuid PRIMARY KEY, job_id text, comparison_status text,
+                    id uuid PRIMARY KEY, job_id text, comparison_status text, user_id uuid,
+                    resume_id uuid, comparison_resume_updated_at timestamptz, comparison_completed_at timestamptz,
                     comparison_request_id uuid, comparison_lease_token uuid,
                     comparison_lease_until timestamptz, comparison_attempts integer,
                     comparison_next_attempt_at timestamptz,
-                    resume_snapshot jsonb, job_description text, match_score numeric,
+                    job_description text, match_score numeric,
                     matched_skills jsonb, missing_skills jsonb, relevant_experience text,
                     other_gaps jsonb, created_at timestamptz DEFAULT CURRENT_TIMESTAMP,
                     updated_at timestamptz DEFAULT CURRENT_TIMESTAMP
@@ -63,9 +68,9 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
     private void insert(UUID rowId, UUID generation) {
         jdbc.update("""
                 INSERT INTO saved_jobs (id, job_id, comparison_status, comparison_request_id,
-                    comparison_attempts, resume_snapshot, job_description)
-                VALUES (?, 'job', 'PENDING', ?, 0, '{"s3Key":"snapshot.pdf"}'::jsonb, 'Java')
-                """, rowId, generation);
+                    comparison_attempts, job_description, user_id)
+                VALUES (?, 'job', 'PENDING', ?, 0, 'Java', ?)
+                """, rowId, generation, userId);
     }
 
     @AfterEach
@@ -127,6 +132,19 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
         }
         assertEquals("FAILED", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs", String.class));
         assertTrue(queue.claim().isEmpty());
+    }
+
+    @Test
+    void claimsLiveResumeAndRejectsResultAfterReplacement() throws Exception {
+        var old = queue.claim().orElseThrow();
+        assertEquals("active.pdf", old.s3Key());
+        jdbc.update("UPDATE resume SET updated_at = updated_at + INTERVAL '1 second', s3_key = 'new.pdf'");
+        assertFalse(queue.complete(old, result));
+        queue.retryOrFail(old);
+        jdbc.update("UPDATE saved_jobs SET comparison_next_attempt_at = CURRENT_TIMESTAMP");
+        var latest = queue.claim().orElseThrow();
+        assertEquals("new.pdf", latest.s3Key());
+        assertTrue(queue.complete(latest, result));
     }
 
     @Test

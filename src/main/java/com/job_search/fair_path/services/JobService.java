@@ -96,9 +96,10 @@ public class JobService {
                             jobDescription, jobSalaryMin, jobSalaryMax, saved);
                     if (savedJob != null) {
                         job.setResumeId(savedJob.getResumeId());
-                        job.setResumeSnapshot(savedJob.getResumeSnapshot());
                         job.setComparisonStatus(savedJob.getComparisonStatus());
                         job.setComparisonRequestId(savedJob.getComparisonRequestId());
+                        job.setComparisonResumeUpdatedAt(savedJob.getComparisonResumeUpdatedAt());
+                        job.setComparisonCompletedAt(savedJob.getComparisonCompletedAt());
                         job.setMatchScore(savedJob.getMatchScore());
                         job.setMatchedSkills(savedJob.getMatchedSkills());
                         job.setMissingSkills(savedJob.getMissingSkills());

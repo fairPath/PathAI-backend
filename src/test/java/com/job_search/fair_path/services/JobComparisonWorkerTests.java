@@ -13,7 +13,7 @@ class JobComparisonWorkerTests {
     private final JobComparisonQueue queue = mock(JobComparisonQueue.class);
     private final JobComparisonClient client = mock(JobComparisonClient.class);
     private final JobComparisonQueue.Task task = new JobComparisonQueue.Task(
-            UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "job", "private-key", "description", 1);
+            UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "job", "private-key", "description", 1, UUID.randomUUID(), java.time.Instant.now());
 
     @Test
     void successfulComparisonIsPersistedWithItsClaim() throws Exception {

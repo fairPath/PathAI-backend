@@ -5,7 +5,6 @@ import static org.mockito.Mockito.*;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,7 +27,7 @@ class SavedJobQueueTests {
     private final UserRepository users = mock(UserRepository.class);
     private final ResumeRepository resumes = mock(ResumeRepository.class);
     private final S3Client s3 = mock(S3Client.class);
-    private final SavedJobService service = new SavedJobService(jobs, users, resumes, s3, "bucket");
+    private final SavedJobService service = new SavedJobService(jobs, users, resumes);
     private final User user = new User();
     private final Resume resume = new Resume();
     private final SavedJobsEntity saved = new SavedJobsEntity();
@@ -50,8 +49,6 @@ class SavedJobQueueTests {
         saved.setComparisonStatus("PENDING");
         saved.setComparisonRequestId(requestId);
         saved.setComparisonAttempts(1);
-        saved.setResumeSnapshot(Map.of("sourceUpdatedAt", resume.getUpdatedAt().toString(),
-                "s3Key", "resumes/" + user.getId() + "/saved-job-snapshots/snapshot.pdf"));
         request.setJobId("job");
         request.setJobDescription("description");
         when(users.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
@@ -105,25 +102,12 @@ class SavedJobQueueTests {
     }
 
     @Test
-    void newSaveCommitsPendingWorkAndDoesNotExposePrivateSnapshotKey() {
+    void savingWithAnActiveResumeNeverQueuesWorkOrCopiesS3Objects() {
         when(jobs.findForUpdate(user.getId(), "job")).thenReturn(Optional.empty());
-        resume.setS3Bucket("source-bucket");
-        resume.setS3Key("original.pdf");
-        resume.setFileName("resume.pdf");
-        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
-        try {
-            var result = service.prepareJob(request, auth());
-            assertEquals("PENDING", result.getComparisonStatus());
-            assertNotNull(result.getComparisonRequestId());
-            assertFalse(result.getResumeSnapshot().containsKey("s3Key"));
-            var argument = org.mockito.ArgumentCaptor.forClass(SavedJobsEntity.class);
-            verify(jobs).saveAndFlush(argument.capture());
-            assertEquals(0, argument.getValue().getComparisonAttempts());
-            assertNotNull(argument.getValue().getComparisonNextAttemptAt());
-            assertTrue(argument.getValue().getResumeSnapshot().containsKey("s3Key"));
-        } finally {
-            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
-        }
+        var result = service.prepareJob(request, auth());
+        assertEquals("NOT_REQUESTED", result.getComparisonStatus());
+        assertNull(result.getComparisonRequestId());
+        verifyNoInteractions(s3, resumes);
     }
 
     @Test
@@ -136,19 +120,14 @@ class SavedJobQueueTests {
     }
 
     @Test
-    void manualRetryCreatesNewGenerationAndClearsOldLease() {
+    void savingAFailedJobDoesNotRetryIt() {
         saved.setComparisonStatus("FAILED");
         saved.setComparisonAttempts(3);
-        saved.setComparisonLeaseToken(UUID.randomUUID());
-        saved.setComparisonLeaseUntil(Instant.now().plusSeconds(180));
         var result = service.prepareJob(request, auth());
-        assertNotEquals(requestId, result.getComparisonRequestId());
-        assertEquals("PENDING", result.getComparisonStatus());
-        assertEquals(0, saved.getComparisonAttempts());
-        assertNull(saved.getComparisonLeaseToken());
-        assertNull(saved.getComparisonLeaseUntil());
-        assertNotNull(saved.getComparisonNextAttemptAt());
-        verifyNoInteractions(s3);
+        assertEquals(requestId, result.getComparisonRequestId());
+        assertEquals("FAILED", result.getComparisonStatus());
+        assertEquals(3, saved.getComparisonAttempts());
+        verifyNoInteractions(s3, resumes);
     }
 
     @Test

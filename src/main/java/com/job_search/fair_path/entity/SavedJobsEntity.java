@@ -10,7 +10,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -50,12 +49,9 @@ public class SavedJobsEntity {
     @Column(name = "resume_id")
     private UUID resumeId;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "resume_snapshot", columnDefinition = "jsonb")
-    private Map<String, Object> resumeSnapshot;
-
     @Column(name = "match_score", precision = 5, scale = 2)
     private BigDecimal matchScore;
+
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "matched_skills", columnDefinition = "jsonb")
@@ -74,6 +70,11 @@ public class SavedJobsEntity {
 
     @Column(name = "comparison_status", length = 20)
     private String comparisonStatus;
+
+    @Column(name = "comparison_resume_updated_at")
+    private Instant comparisonResumeUpdatedAt;
+    @Column(name = "comparison_completed_at")
+    private Instant comparisonCompletedAt;
 
     // The saved row is also the durable comparison queue entry.
     @Column(name = "comparison_request_id")

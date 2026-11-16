@@ -18,27 +18,27 @@ public class JobComparisonWorker {
         this.client = client;
     }
 
-    @Scheduled(fixedDelayString = "${fairpath.comparison-worker.poll-ms:1000}", initialDelayString = "5000")
+    @Scheduled(fixedDelayString = "${fairpath.comparison-worker.poll-ms:1000}",
+            initialDelayString = "${fairpath.comparison-worker.initial-delay-ms:5000}")
     public void processNext() {
         try {
             var task = queue.claim();
-            if (task.isEmpty()) return;
-            process(task.get());
+            if (task.isPresent()) process(task.get());
         } catch (Exception error) {
-            // A failed database update leaves the lease intact for recovery after expiry.
-            logger.error("Comparison queue unavailable; will retry on next poll", error);
+            logger.error("Comparison queue unavailable error_type={}", error.getClass().getSimpleName());
         }
     }
 
     private void process(JobComparisonQueue.Task task) {
         try {
-            queue.complete(task, client.compare(task));
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            // Leave the claim durable; another process can recover it after the lease expires.
+            if (task.resumeId() == null || task.s3Key() == null || task.resumeUpdatedAt() == null) {
+                queue.retryOrFail(task);
+                return;
+            }
+            if (!queue.complete(task, client.compare(task))) queue.retryOrFail(task);
         } catch (Exception error) {
-            logger.warn("Comparison attempt failed job_id={} attempt={} error_type={}",
-                    task.jobId(), task.attempt(), error.getClass().getSimpleName());
+            logger.warn("Comparison failed correlation_id={} attempt={} error_type={}",
+                    task.requestId(), task.attempt(), error.getClass().getSimpleName());
             queue.retryOrFail(task);
         }
     }
