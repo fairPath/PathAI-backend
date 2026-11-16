@@ -30,7 +30,7 @@ class AiExecutionParityTest {
             Arguments.of(feature, "wrapped503", 1, "INTERNAL_ERROR", true),
             Arguments.of(feature, "typed503", 1, "AI_UNAVAILABLE", true),
             Arguments.of(feature, "extraction", 1, "TEXT_NOT_EXTRACTABLE", false),
-            Arguments.of(feature, "configuration", 1, "AI_CONFIGURATION_ERROR", true),
+            Arguments.of(feature, "configuration", 1, "AI_CONFIGURATION_ERROR", false),
             Arguments.of(feature, "bare429", 1, "INTERNAL_ERROR", true),
             Arguments.of(feature, "bare500", 1, "INTERNAL_ERROR", true),
             Arguments.of(feature, "invalid", 1, "INTERNAL_ERROR", true)

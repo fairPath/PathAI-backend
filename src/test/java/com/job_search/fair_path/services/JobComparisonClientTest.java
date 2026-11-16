@@ -110,12 +110,12 @@ class JobComparisonClientTest extends IntegrationTestBase {
     }
 
     @Test
-    void typedProviderCodeIsPreservedWithAnalysisManualRetryPolicy() {
+    void typedProviderCodeIsPreservedAndNotRetryable() {
         stubComparison(502, """
                 {"correlation_id": "%s", "error_code": "AI_CONFIGURATION_ERROR", "retryable": false}
                 """.formatted(task.requestId()));
         var failure = org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task));
-        org.junit.jupiter.api.Assertions.assertTrue(failure.retryable());
+        org.junit.jupiter.api.Assertions.assertFalse(failure.retryable());
         org.junit.jupiter.api.Assertions.assertEquals("AI_CONFIGURATION_ERROR", failure.errorCode());
     }
 

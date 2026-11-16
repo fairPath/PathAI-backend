@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import com.job_search.fair_path.exceptions.AiServiceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.client.MockClientHttpResponse;
 import org.springframework.web.client.RestClientException;
@@ -39,7 +40,7 @@ class AiServiceErrorsTest {
         var error = AiServiceErrors.decode(response, new ObjectMapper(), 8192);
         assertThat(error.hasEnvelope()).isTrue();
         assertThat(error.retryAfterSeconds()).isEqualTo(60);
-        assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isTrue();
+        assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isFalse();
     }
 
     @Test
@@ -68,4 +69,23 @@ class AiServiceErrorsTest {
         assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isTrue();
     }
 
+    /** Every code the AI service sends with retryable=false. A new one must be added to the list. */
+    @ParameterizedTest
+    @ValueSource(strings = {"TEXT_NOT_EXTRACTABLE", "FILE_UNREADABLE", "AI_CONFIGURATION_ERROR",
+            "AI_AUTHENTICATION_FAILED", "INVALID_AI_REQUEST", "INVALID_COMPARISON_REQUEST",
+            "RESUME_UNAVAILABLE", "RESUME_UNREADABLE", "STORAGE_CONFIGURATION_ERROR"})
+    void permanentAiCodesAreNotRetryableForEitherFeature(String code) {
+        var error = new AiServiceException(502, ID.toString(), code, false, 0);
+        assertThat(AiServiceErrors.isRetryableAnalysisCode(code)).isFalse();
+        assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"AI_UNAVAILABLE", "AI_TIMED_OUT", "UPSTREAM_RATE_LIMITED", "INVALID_AI_RESPONSE",
+            "INTERNAL_ERROR", "ANALYSIS_TIMED_OUT"})
+    void transientOrUnclassifiedCodesStayRetryable(String code) {
+        var error = new AiServiceException(503, ID.toString(), code, true, 0);
+        assertThat(AiServiceErrors.isRetryableAnalysisCode(code)).isTrue();
+        assertThat(AiServiceErrors.comparisonFailure(error, ID).retryable()).isTrue();
+    }
 }
