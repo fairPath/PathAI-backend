@@ -105,9 +105,12 @@ The JWT owner scopes every saved-job and active-resume lookup. Repeated clicks
 while PENDING reuse the existing request; a later manual check creates a new request ID.
 
 Both Analysis and comparison dispatch after commit through `AiRequestExecution`.
-It uses Spring's original default `@Async` pool (Boot default: 8 core threads),
-never a scheduler thread. Features supply a request/success operation; the shared
-component owns execution and Analysis's original one-retry policy.
+It dispatches to independent fixed-size `@Async` pools: eight Analysis threads
+and eight comparison threads, never a scheduler thread. Configure their sizes with
+`fairpath.ai-execution.analysis-threads` and `comparison-threads`. Each pool retains
+the original queue behavior; requests beyond its worker capacity wait in its queue.
+Features supply a request/success operation; the shared component owns execution
+and Analysis's original one-retry policy.
 
 Each comparison claim resolves the latest ACTIVE resume and its live S3 key.
 Request, lease and resume-version guards reject stale results. A changed resume

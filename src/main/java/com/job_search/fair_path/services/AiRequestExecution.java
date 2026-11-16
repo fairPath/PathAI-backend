@@ -9,16 +9,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.job_search.fair_path.config.AiServiceProperties;
 
-/** Analysis's original async executor and one-retry policy, shared by every AI feature. */
+/** Shared async dispatch and original Analysis retry policy, with isolated feature pools. */
 @Component
 public class AiRequestExecution {
     private static final Logger log = LoggerFactory.getLogger(AiRequestExecution.class);
     private final AiServiceProperties properties;
     public AiRequestExecution(AiServiceProperties properties) { this.properties = properties; }
 
-    // Use Spring's original default @Async executor, never a scheduled-maintenance thread.
-    @Async
-    public void execute(Runnable task) { task.run(); }
+    @Async("analysisExecutor")
+    public void executeAnalysis(Runnable task) { task.run(); }
+
+    @Async("comparisonExecutor")
+    public void executeComparison(Runnable task) { task.run(); }
 
     public <T> T call(UUID correlationId, Supplier<T> request) {
         try {

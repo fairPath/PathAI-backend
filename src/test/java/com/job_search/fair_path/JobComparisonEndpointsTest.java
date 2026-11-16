@@ -26,7 +26,8 @@ class JobComparisonEndpointsTest extends AnalysisTestSupport {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
     @Autowired private com.job_search.fair_path.services.SavedJobService savedJobService;
-    @Autowired private org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor applicationTaskExecutor;
+    @Autowired @org.springframework.beans.factory.annotation.Qualifier("comparisonExecutor")
+    private org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor comparisonExecutor;
 
     private void save() throws Exception {
         mockMvc.perform(post("/saved-jobs/prepare").header("Authorization", bearerToken)
@@ -130,7 +131,7 @@ class JobComparisonEndpointsTest extends AnalysisTestSupport {
         org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(10)).untilAsserted(() ->
             assertEquals("FAILED", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs WHERE job_id = 'job'", String.class)));
         aiService.verify(2, postRequestedFor(urlEqualTo("/job-comparison")));
-        assertEquals(8, applicationTaskExecutor.getCorePoolSize());
+        assertEquals(8, comparisonExecutor.getCorePoolSize());
     }
 
     @Test
