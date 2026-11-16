@@ -4,17 +4,22 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.time.Duration;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.test.util.TestPropertyValues;
 import org.springframework.context.annotation.*;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import com.job_search.fair_path.config.AiExecutionConfig;
 import com.job_search.fair_path.config.AiServiceProperties;
 
 class ComparisonSchedulingTest {
     @Configuration
     @EnableAsync
-    @Import(TaskExecutionAutoConfiguration.class)
+    @Import(AiExecutionConfig.class)
     static class Config {
         @Bean AiRequestExecution execution() {
             return new AiRequestExecution(new AiServiceProperties("http://unused", "token",
@@ -23,24 +28,62 @@ class ComparisonSchedulingTest {
     }
 
     @Test
-    void bothFeaturesUseOriginalSpringPoolAndCanRunConcurrently() throws Exception {
+    void eightBlockedComparisonsCannotConsumeAnalysisCapacity() throws Exception {
         try (var context = new AnnotationConfigApplicationContext(Config.class)) {
-            var pool = context.getBean("applicationTaskExecutor", ThreadPoolTaskExecutor.class);
-            assertEquals(8, pool.getCorePoolSize()); // Spring Boot's original default.
+            var analysis = context.getBean("analysisExecutor", ThreadPoolTaskExecutor.class);
+            var comparison = context.getBean("comparisonExecutor", ThreadPoolTaskExecutor.class);
+            assertEquals(8, analysis.getCorePoolSize());
+            assertEquals(8, analysis.getMaxPoolSize());
+            assertEquals(8, comparison.getCorePoolSize());
+            assertEquals(8, comparison.getMaxPoolSize());
             var execution = context.getBean(AiRequestExecution.class);
-            var entered = new CountDownLatch(2);
+            var comparisonsStarted = new CountDownLatch(8);
+            var analysesStarted = new CountDownLatch(8);
             var release = new CountDownLatch(1);
-            Runnable aiWork = () -> {
-                entered.countDown();
-                try { release.await(5, TimeUnit.SECONDS); }
-                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
-            };
+            Set<String> names = ConcurrentHashMap.newKeySet();
             try {
-                execution.execute(aiWork); // Analysis
-                execution.execute(aiWork); // Comparison
-                assertTrue(entered.await(2, TimeUnit.SECONDS), "One blocked AI request must not serialize the other");
-                assertEquals(2, pool.getActiveCount());
+                for (int i = 0; i < 8; i++) execution.executeComparison(() -> block(comparisonsStarted, release, names));
+                assertTrue(comparisonsStarted.await(5, TimeUnit.SECONDS));
+                execution.executeComparison(() -> {}); // Ninth comparison must queue.
+                assertEquals(1, comparison.getQueueSize());
+                for (int i = 0; i < 8; i++) execution.executeAnalysis(() -> block(analysesStarted, release, names));
+                assertTrue(analysesStarted.await(5, TimeUnit.SECONDS), "Comparison saturation must not delay Analysis");
+                execution.executeAnalysis(() -> {}); // Ninth Analysis must queue in its own pool.
+                assertEquals(1, analysis.getQueueSize());
+                assertEquals(8, comparison.getActiveCount());
+                assertEquals(8, analysis.getActiveCount());
+                assertEquals(8, names.stream().filter(name -> name.startsWith("comparison-")).count());
+                assertEquals(8, names.stream().filter(name -> name.startsWith("analysis-")).count());
             } finally { release.countDown(); }
+        }
+    }
+
+    private static void block(CountDownLatch started, CountDownLatch release, Set<String> names) {
+        names.add(Thread.currentThread().getName());
+        started.countDown();
+        try { release.await(15, TimeUnit.SECONDS); }
+        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+    }
+
+    @Test
+    void poolSizesAreIndependentlyConfigurable() {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            TestPropertyValues.of("fairpath.ai-execution.analysis-threads=2",
+                "fairpath.ai-execution.comparison-threads=3").applyTo(context);
+            context.register(Config.class);
+            context.refresh();
+            assertEquals(2, context.getBean("analysisExecutor", ThreadPoolTaskExecutor.class).getMaxPoolSize());
+            assertEquals(3, context.getBean("comparisonExecutor", ThreadPoolTaskExecutor.class).getMaxPoolSize());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"analysis", "comparison"})
+    void nonpositivePoolSizeFailsStartup(String feature) {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            TestPropertyValues.of("fairpath.ai-execution." + feature + "-threads=0").applyTo(context);
+            context.register(Config.class);
+            assertThrows(org.springframework.beans.factory.BeanCreationException.class, context::refresh);
         }
     }
 }

@@ -53,7 +53,7 @@ public class AnalysisRunner {
     // one that has already committed.
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onAnalysisRequested(AnalysisRequestedEvent event) {
-        execution.execute(() -> run(event.request()));
+        execution.executeAnalysis(() -> run(event.request()));
     }
 
     /**

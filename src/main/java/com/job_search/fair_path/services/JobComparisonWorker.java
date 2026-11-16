@@ -26,7 +26,7 @@ public class JobComparisonWorker {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onComparisonRequested(ComparisonRequestedEvent event) {
-        execution.execute(() -> processNext(event.requestId()));
+        execution.executeComparison(() -> processNext(event.requestId()));
     }
 
     public void processNext() { processNext(null); }
