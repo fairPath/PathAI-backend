@@ -137,7 +137,7 @@ class JobComparisonClientTest extends IntegrationTestBase {
     void invalidComponentScoreIsRejected(String field) {
         stubComparison(200, VALID_RESULT.replace("\"" + field + "\": " + (field.equals("skill_match_score") ? "90" : "80"), "\"" + field + "\": 101"));
         assertThatThrownBy(() -> client.compare(task))
-                .isInstanceOf(ComparisonFailure.class).hasMessage("INVALID_AI_RESPONSE");
+                .isInstanceOf(ComparisonFailure.class).hasMessage("INTERNAL_ERROR");
     }
 
     @Test
