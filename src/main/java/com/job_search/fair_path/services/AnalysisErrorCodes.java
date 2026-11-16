@@ -16,4 +16,13 @@ public final class AnalysisErrorCodes {
     public static boolean isRetryable(String errorCode) {
         return AiServiceErrors.isRetryableAnalysisCode(errorCode);
     }
+
+    /**
+     * The retryable value to report for a failed Analysis: the one stored with
+     * the failure, or, for a row without one (written before the column
+     * existed, or by the sweep), derived from its error_code.
+     */
+    public static boolean isRetryable(Boolean stored, String errorCode) {
+        return stored != null ? stored : isRetryable(errorCode);
+    }
 }

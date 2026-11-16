@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -261,7 +262,7 @@ class AnalysisOutcomeMappingTest extends AnalysisTestSupport {
     @Test
     void aFailureStoredWithoutAFlagDerivesRetryabilityFromItsCode() throws Exception {
         UUID id = insertPending();
-        analysisRepository.claim(id, java.time.Instant.now());
+        analysisRepository.claim(id, Instant.now());
 
         analysisRepository.failProcessing(id, "FILE_UNREADABLE");
 
