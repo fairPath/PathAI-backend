@@ -103,6 +103,9 @@ public class JobService {
                         job.setComparisonResumeUpdatedAt(savedJob.getComparisonResumeUpdatedAt());
                         job.setComparisonCompletedAt(savedJob.getComparisonCompletedAt());
                         job.setMatchScore(savedJob.getMatchScore());
+                        job.setSkillMatchScore(savedJob.getSkillMatchScore());
+                        job.setExperienceMatchScore(savedJob.getExperienceMatchScore());
+                        job.setResumeAdvice(savedJob.getResumeAdvice());
                         job.setMatchedSkills(savedJob.getMatchedSkills());
                         job.setMissingSkills(savedJob.getMissingSkills());
                         job.setRelevantExperience(savedJob.getRelevantExperience());

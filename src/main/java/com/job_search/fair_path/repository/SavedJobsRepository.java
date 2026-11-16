@@ -28,7 +28,8 @@ public interface SavedJobsRepository extends JpaRepository<SavedJobsEntity, UUID
                 comparison_attempts = 0, comparison_next_attempt_at = CURRENT_TIMESTAMP,
                 comparison_lease_token = NULL, comparison_lease_until = NULL,
                 comparison_error_code = NULL, comparison_retryable = NULL,
-                match_score = NULL, matched_skills = NULL, missing_skills = NULL,
+                match_score = NULL, skill_match_score = NULL, experience_match_score = NULL, resume_advice = NULL,
+                matched_skills = NULL, missing_skills = NULL,
                 relevant_experience = NULL, other_gaps = NULL, resume_id = NULL,
                 comparison_resume_updated_at = NULL, comparison_completed_at = NULL,
                 updated_at = CURRENT_TIMESTAMP

@@ -32,7 +32,7 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
     private final UUID userId = UUID.randomUUID();
     private final UUID resumeId = UUID.randomUUID();
     private final JobComparisonClient.Result result =
-            new JobComparisonClient.Result(80, List.of("Java"), List.of(), "Experience", List.of());
+            new JobComparisonClient.Result(80, List.of("Java"), List.of(), "Experience", List.of(), 90, 70, "Highlight your relevant projects.");
 
     @BeforeEach
     void setup() throws Exception {
@@ -57,6 +57,7 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
                     comparison_lease_until timestamptz, comparison_attempts integer,
                     comparison_next_attempt_at timestamptz,
                     job_description text, match_score numeric,
+                    skill_match_score integer, experience_match_score integer, resume_advice text,
                     matched_skills jsonb, missing_skills jsonb, relevant_experience text,
                     other_gaps jsonb, created_at timestamptz DEFAULT CURRENT_TIMESTAMP,
                     updated_at timestamptz DEFAULT CURRENT_TIMESTAMP
