@@ -20,7 +20,19 @@ import com.job_search.fair_path.exceptions.ComparisonFailure;
 
 /** Shared AI error decoding and retry classification. Never exposes response bodies. */
 public final class AiServiceErrors {
-    private static final Set<String> TERMINAL_ANALYSIS_CODES = Set.of("TEXT_NOT_EXTRACTABLE", "FILE_UNREADABLE");
+    /**
+     * Codes a retry can never fix, for both features. Anything not listed is retryable: a missing
+     * Retry button on a transient failure strands the user, while a Retry on a permanent one only
+     * costs a click. The first two are Analysis's extraction failures; the rest are the AI
+     * service's permanent codes (it sends them with retryable=false), so a new permanent code
+     * from the AI service needs a line here. INVALID_AI_RESPONSE and INTERNAL_ERROR stay
+     * retryable on purpose.
+     */
+    private static final Set<String> TERMINAL_ANALYSIS_CODES = Set.of(
+            "TEXT_NOT_EXTRACTABLE", "FILE_UNREADABLE",
+            "AI_CONFIGURATION_ERROR", "AI_AUTHENTICATION_FAILED", "INVALID_AI_REQUEST",
+            "INVALID_COMPARISON_REQUEST", "RESUME_UNAVAILABLE", "RESUME_UNREADABLE",
+            "STORAGE_CONFIGURATION_ERROR");
     private static final Pattern ERROR_CODE = Pattern.compile("[A-Z][A-Z0-9_]{0,63}");
     private AiServiceErrors() {}
 
