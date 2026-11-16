@@ -55,7 +55,7 @@ public class JobComparisonClient {
                     .body(String.class);
             var json = mapper.readTree(body == null ? "" : body);
             if (json == null || !task.requestId().toString().equals(json.path("correlation_id").asText()))
-                throw new ComparisonFailure("INVALID_AI_RESPONSE", false);
+                return null;
             Result result = mapper.readerFor(Result.class)
                     .without(com.fasterxml.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT)
                     .readValue(body);

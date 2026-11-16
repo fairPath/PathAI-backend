@@ -82,19 +82,22 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
     }
 
     @Test
-    void restartRecoversExpiredLeaseAndRejectsOldWorkerResult() throws Exception {
+    void expiredExecutionFailsWithoutReplayingInference() throws Exception {
         var first = queue.claim().orElseThrow();
-        var restarted = new JobComparisonQueue(jdbc, new ObjectMapper());
-        assertTrue(restarted.claim().isEmpty());
-        jdbc.update("UPDATE saved_jobs SET comparison_lease_until = CURRENT_TIMESTAMP - INTERVAL '1 second'");
-        var recovered = restarted.claim().orElseThrow();
-        assertEquals(first.requestId(), recovered.requestId());
-        assertNotEquals(first.leaseToken(), recovered.leaseToken());
-        assertEquals(2, recovered.attempt());
-        assertFalse(queue.complete(first, result));
-        assertTrue(restarted.complete(recovered, result));
-        assertEquals(80, jdbc.queryForObject("SELECT match_score FROM saved_jobs", Integer.class));
         assertTrue(queue.claim().isEmpty());
+        jdbc.update("UPDATE saved_jobs SET comparison_lease_until = CURRENT_TIMESTAMP - INTERVAL '1 second'");
+        assertTrue(queue.claim().isEmpty());
+        assertEquals("FAILED", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs", String.class));
+        assertFalse(queue.complete(first, result));
+    }
+
+    @Test
+    void afterCommitDispatchClaimsOnlyItsOwnRequest() {
+        UUID second = UUID.randomUUID();
+        insert(UUID.randomUUID(), second);
+        assertEquals(second, queue.claim(second).orElseThrow().requestId());
+        assertTrue(queue.claim(second).isEmpty());
+        assertEquals(requestId, queue.claim(requestId).orElseThrow().requestId());
     }
 
     @Test
@@ -117,22 +120,15 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
         jdbc.update("DELETE FROM saved_jobs WHERE id = ?", id);
         insert(UUID.randomUUID(), UUID.randomUUID());
         assertFalse(queue.complete(old, result));
-        queue.retryOrFail(old, new ComparisonFailure("AI_UNAVAILABLE", true));
+        queue.fail(old, new ComparisonFailure("AI_UNAVAILABLE", true));
         assertEquals("PENDING", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs", String.class));
         assertNull(jdbc.queryForObject("SELECT match_score FROM saved_jobs", Integer.class));
     }
 
     @Test
-    void failuresStopAfterThreeAttemptsAndSurviveQueueRecreation() {
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            var claimed = new JobComparisonQueue(jdbc, new ObjectMapper()).claim().orElseThrow();
-            assertEquals(attempt, claimed.attempt());
-            queue.retryOrFail(claimed, new ComparisonFailure("AI_UNAVAILABLE", true));
-            if (attempt < 3) {
-                assertTrue(queue.claim().isEmpty()); // retry backoff is enforced
-                jdbc.update("UPDATE saved_jobs SET comparison_next_attempt_at = CURRENT_TIMESTAMP");
-            }
-        }
+    void terminalFailureCannotBeClaimedAgainAutomatically() {
+        var claimed = queue.claim().orElseThrow();
+        queue.fail(claimed, new ComparisonFailure("INTERNAL_ERROR", true));
         assertEquals("FAILED", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs", String.class));
         assertTrue(queue.claim().isEmpty());
     }
@@ -143,8 +139,8 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
         assertEquals("active.pdf", old.s3Key());
         jdbc.update("UPDATE resume SET updated_at = updated_at + INTERVAL '1 second', s3_key = 'new.pdf'");
         assertFalse(queue.complete(old, result));
-        queue.retryOrFail(old, new ComparisonFailure("RESUME_CHANGED", true));
-        jdbc.update("UPDATE saved_jobs SET comparison_next_attempt_at = CURRENT_TIMESTAMP");
+        queue.fail(old, new ComparisonFailure("RESUME_CHANGED", true));
+        jdbc.update("UPDATE saved_jobs SET comparison_status = 'PENDING', comparison_attempts = 0, comparison_request_id = ?", UUID.randomUUID());
         var latest = queue.claim().orElseThrow();
         assertEquals("new.pdf", latest.s3Key());
         assertTrue(queue.complete(latest, result));
@@ -153,7 +149,7 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
     @Test
     void permanentFailureStopsAfterFirstAttemptAndStoresItsCode() {
         var task = queue.claim().orElseThrow();
-        queue.retryOrFail(task, new ComparisonFailure("RESUME_UNREADABLE", false));
+        queue.fail(task, new ComparisonFailure("RESUME_UNREADABLE", false));
         assertTrue(queue.claim().isEmpty());
         assertEquals("FAILED", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs", String.class));
         assertEquals("RESUME_UNREADABLE", jdbc.queryForObject("SELECT comparison_error_code FROM saved_jobs", String.class));
@@ -163,8 +159,7 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
 
     @Test
     void processDeathOnLastAttemptEventuallyBecomesFailed() {
-        jdbc.update("UPDATE saved_jobs SET comparison_attempts = 2");
-        assertEquals(3, queue.claim().orElseThrow().attempt());
+        assertEquals(1, queue.claim().orElseThrow().attempt());
         jdbc.update("UPDATE saved_jobs SET comparison_lease_until = CURRENT_TIMESTAMP - INTERVAL '1 second'");
         assertTrue(queue.claim().isEmpty());
         assertEquals("FAILED", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs", String.class));

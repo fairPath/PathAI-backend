@@ -71,7 +71,7 @@ class JobComparisonClientTest extends IntegrationTestBase {
 
         assertThatThrownBy(() -> client.compare(task))
                 .isInstanceOf(ComparisonFailure.class)
-                .hasMessage("AI_REQUEST_REJECTED")
+                .hasMessage("INTERNAL_ERROR")
                 .hasMessageNotContaining("resume text");
     }
 
@@ -81,7 +81,7 @@ class JobComparisonClientTest extends IntegrationTestBase {
 
         assertThatThrownBy(() -> client.compare(task))
                 .isInstanceOf(ComparisonFailure.class)
-                .hasMessage("AI_AUTHENTICATION_FAILED");
+                .hasMessage("INTERNAL_ERROR");
     }
 
     @Test
@@ -90,42 +90,42 @@ class JobComparisonClientTest extends IntegrationTestBase {
 
         assertThatThrownBy(() -> client.compare(task))
                 .isInstanceOf(ComparisonFailure.class)
-                .hasMessage("INVALID_AI_RESPONSE");
+                .hasMessage("INTERNAL_ERROR");
     }
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(ints = {400, 401, 403, 404, 405, 413, 415, 422, 500})
-    void permanentStatusesAreNotRetried(int status) {
+    void httpFailuresUseOriginalAnalysisManualRetryPolicy(int status) {
         stubComparison(status, "{}");
-        org.junit.jupiter.api.Assertions.assertFalse(
+        org.junit.jupiter.api.Assertions.assertTrue(
             org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task)).retryable());
     }
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(ints = {408, 429, 502, 503, 504})
-    void transientStatusesAreRetriable(int status) {
+    void transientStatusesRetainManualRetryWithoutOwningAutomaticRetries(int status) {
         stubComparison(status, "{}");
         org.junit.jupiter.api.Assertions.assertTrue(
             org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task)).retryable());
     }
 
     @Test
-    void typedPermanentProviderConfigurationFailureOverrides502() {
+    void typedProviderCodeIsPreservedWithAnalysisManualRetryPolicy() {
         stubComparison(502, """
                 {"correlation_id": "%s", "error_code": "AI_CONFIGURATION_ERROR", "retryable": false}
                 """.formatted(task.requestId()));
         var failure = org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task));
-        org.junit.jupiter.api.Assertions.assertFalse(failure.retryable());
+        org.junit.jupiter.api.Assertions.assertTrue(failure.retryable());
         org.junit.jupiter.api.Assertions.assertEquals("AI_CONFIGURATION_ERROR", failure.errorCode());
     }
 
     @Test
-    void rateLimitHonorsRetryAfter() {
+    void rateLimitDoesNotChangeOriginalAnalysisRetryDelay() {
         aiService.stubFor(post(urlEqualTo("/job-comparison"))
                 .willReturn(aResponse().withStatus(429).withHeader("Retry-After", "60").withBody("{}")));
         var failure = org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> client.compare(task));
         org.junit.jupiter.api.Assertions.assertTrue(failure.retryable());
-        org.junit.jupiter.api.Assertions.assertEquals(60, failure.retryAfterSeconds());
+        org.junit.jupiter.api.Assertions.assertEquals(0, failure.retryAfterSeconds(), "Analysis policy does not schedule provider retries");
     }
 
     @Test
@@ -163,7 +163,7 @@ class JobComparisonClientTest extends IntegrationTestBase {
         var transport = new JobComparisonClient(new com.fasterxml.jackson.databind.ObjectMapper(), builder.build());
         var failure = org.junit.jupiter.api.Assertions.assertThrows(ComparisonFailure.class, () -> transport.compare(task));
         org.junit.jupiter.api.Assertions.assertTrue(failure.retryable(),
-                "A response body read timeout must be retried, not classified as invalid model output");
+                "A response body read timeout remains manually retryable under the Analysis policy");
         server.verify();
     }
 

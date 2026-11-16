@@ -33,8 +33,6 @@ public class AiServiceClientConfig {
         Assert.hasText(properties.internalToken(),
                 "fairpath.ai-service.internal-token (FAIRPATH_AI_INTERNAL_TOKEN) must be set");
 
-        Assert.isTrue(properties.analysisMaxAttempts() > 0, "fairpath.ai-service.analysis-max-attempts must be positive");
-
         Assert.isTrue(properties.maxErrorBodyBytes() > 0, "fairpath.ai-service.max-error-body-bytes must be positive");
 
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
