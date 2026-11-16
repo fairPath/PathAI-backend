@@ -27,6 +27,7 @@ class AiExecutionParityTest {
             Arguments.of(feature, "refused", 2, "INTERNAL_ERROR", true),
             Arguments.of(feature, "timeout", 1, "ANALYSIS_TIMED_OUT", true),
             Arguments.of(feature, "bare503", 2, "INTERNAL_ERROR", true),
+            Arguments.of(feature, "wrapped503", 1, "INTERNAL_ERROR", true),
             Arguments.of(feature, "typed503", 1, "AI_UNAVAILABLE", true),
             Arguments.of(feature, "extraction", 1, "TEXT_NOT_EXTRACTABLE", false),
             Arguments.of(feature, "configuration", 1, "AI_CONFIGURATION_ERROR", true),
@@ -62,6 +63,7 @@ class AiExecutionParityTest {
             case "refused" -> new ResourceAccessException("synthetic", new ConnectException());
             case "timeout" -> new ResourceAccessException("synthetic", new SocketTimeoutException());
             case "bare503" -> new AiServiceException(503, null, null, false);
+            case "wrapped503" -> new org.springframework.web.client.RestClientException("synthetic wrapper", new AiServiceException(503, null, null, false));
             case "typed503" -> new AiServiceException(503, id.toString(), "AI_UNAVAILABLE", true, 60);
             case "extraction" -> new AiServiceException(422, id.toString(), "TEXT_NOT_EXTRACTABLE", false);
             case "configuration" -> new AiServiceException(502, id.toString(), "AI_CONFIGURATION_ERROR", false);

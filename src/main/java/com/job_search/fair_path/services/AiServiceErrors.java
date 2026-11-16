@@ -76,8 +76,10 @@ public final class AiServiceErrors {
     }
 
     private static AiServiceException aiException(Throwable error) {
-        for (Throwable cause = error; cause != null; cause = cause.getCause() == cause ? null : cause.getCause())
-            if (cause instanceof AiServiceException ai) return ai;
+        if (error instanceof AiServiceException ai) return ai;
+        // Comparison's safe carrier retains the original transport exception.
+        // Do not broaden Analysis's original handling of arbitrary nested HTTP errors.
+        if (error instanceof ComparisonFailure && error.getCause() instanceof AiServiceException ai) return ai;
         return null;
     }
 
