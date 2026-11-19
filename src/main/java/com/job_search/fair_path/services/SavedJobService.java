@@ -52,13 +52,6 @@ public class SavedJobService {
                 .collect(Collectors.toList());
     }
 
-    public JobResultDTO getSavedJobForUser(Authentication authentication, String jobId) {
-        UUID userId = authenticatedUser(authentication).getId();
-        return savedJobsRepository.findByUserIdAndJobId(userId, jobId)
-                .map(this::toDto)
-                .orElse(null);
-    }
-
     @Transactional
     public JobResultDTO prepareJob(JobResultDTO request, Authentication authentication) {
         if (request.getJobId() == null || request.getJobId().isBlank()) {

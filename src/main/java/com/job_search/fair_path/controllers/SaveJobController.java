@@ -33,13 +33,6 @@ public class SaveJobController {
         return savedJobService.getSavedJobsForUser(authentication);
     }
 
-    @GetMapping("/detail")
-    public ResponseEntity<JobResultDTO> getSavedJobForUser(Authentication authentication,
-            @RequestParam(required = true) String jobId) {
-        JobResultDTO savedJob = savedJobService.getSavedJobForUser(authentication, jobId);
-        return savedJob == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(savedJob);
-    }
-
     @PostMapping("/prepare")
     public ResponseEntity<JobResultDTO> prepareJobForUser(@RequestBody JobResultDTO jobRequestDTO,
             Authentication authentication) {
