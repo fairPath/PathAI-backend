@@ -77,10 +77,10 @@ class JobComparisonEndpointsTest extends AnalysisTestSupport {
         aiService.verify(postRequestedFor(urlEqualTo("/job-comparison"))
                 .withRequestBody(matchingJsonPath("$.s3_key", equalTo("resumes/latest.pdf")))
                 .withRequestBody(matchingJsonPath("$.correlation_id", equalTo(id))));
-        mockMvc.perform(get("/saved-jobs/detail").param("jobId", "job").header("Authorization", bearerToken))
-                .andExpect(jsonPath("$.skillMatchScore").value(90))
-                .andExpect(jsonPath("$.experienceMatchScore").value(80))
-                .andExpect(jsonPath("$.resumeAdvice").value("Highlight your relevant projects."));
+        mockMvc.perform(get("/saved-jobs/list").header("Authorization", bearerToken))
+                .andExpect(jsonPath("$[0].skillMatchScore").value(90))
+                .andExpect(jsonPath("$[0].experienceMatchScore").value(80))
+                .andExpect(jsonPath("$[0].resumeAdvice").value("Highlight your relevant projects."));
         String recheck = compare();
         assertNull(JsonPath.read(recheck, "$.matchScore"));
         assertNull(JsonPath.read(recheck, "$.skillMatchScore"));

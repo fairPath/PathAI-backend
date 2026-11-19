@@ -94,11 +94,11 @@ class SavedJobQueueTests {
     }
 
     @Test
-    void savedJobDetailPreservesFullTextAndWhitespace() {
+    void savedJobListPreservesFullTextAndWhitespace() {
         saved.setJobDescription("First paragraph\n\nSecond paragraph with the final requirement.");
-        when(jobs.findByUserIdAndJobId(user.getId(), "job")).thenReturn(Optional.of(saved));
+        when(jobs.findByUserId(user.getId())).thenReturn(List.of(saved));
         assertEquals("First paragraph\n\nSecond paragraph with the final requirement.",
-                service.getSavedJobForUser(auth(), "job").getJobDescription());
+                service.getSavedJobsForUser(auth()).get(0).getJobDescription());
     }
 
     @Test

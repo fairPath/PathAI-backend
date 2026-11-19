@@ -22,8 +22,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // Optional is used a not guaranteed return of a user
     Optional<User> findByEmail(String email);
 
-    Optional<User> findByVerificationCode(String verificationCode);
-
     Optional<User> findByResetTokenHash(String resetTokenHash);
 
     @Query("""

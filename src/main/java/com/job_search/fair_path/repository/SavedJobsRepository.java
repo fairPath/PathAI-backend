@@ -15,8 +15,6 @@ public interface SavedJobsRepository extends JpaRepository<SavedJobsEntity, UUID
 
     long countByUserId(UUID userId);
 
-    Optional<SavedJobsEntity> findByUserIdAndJobId(UUID userId, String jobId);
-
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @org.springframework.data.jpa.repository.Query("select j from SavedJobsEntity j where j.userId = :userId and j.jobId = :jobId")
     Optional<SavedJobsEntity> findForUpdate(@org.springframework.data.repository.query.Param("userId") UUID userId,
@@ -42,6 +40,5 @@ public interface SavedJobsRepository extends JpaRepository<SavedJobsEntity, UUID
             @org.springframework.data.repository.query.Param("next") String next,
             @org.springframework.data.repository.query.Param("requestId") UUID requestId);
 
-    List<SavedJobsEntity> deleteByUserIdAndJobId(UUID userId, String jobId);
 
 }
