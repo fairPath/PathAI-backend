@@ -3,6 +3,7 @@ package com.job_search.fair_path.services;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.function.BooleanSupplier;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
@@ -22,7 +23,7 @@ public class AiRequestExecution {
     @Async("comparisonExecutor")
     public void executeComparison(Runnable task) { task.run(); }
 
-    public <T> T call(UUID correlationId, Supplier<T> request) {
+    public <T> T call(UUID correlationId, BooleanSupplier mayRetry, Supplier<T> request) {
         try {
             return request.get();
         } catch (RuntimeException first) {
@@ -35,6 +36,7 @@ public class AiRequestExecution {
                 Thread.currentThread().interrupt();
                 throw first;
             }
+            if (!mayRetry.getAsBoolean()) throw first;
             return request.get();
         }
     }

@@ -83,7 +83,8 @@ public class AnalysisService {
     public AnalysisStatusDTO requestAnalysis(User user) {
         // One request per user at a time: the checks below and the insert must
         // not interleave with another Analyze, or with a Resume delete/confirm.
-        userRepository.findByIdForUpdate(user.getId());
+        userRepository.findByIdForUpdate(user.getId()).filter(User::isEnabled)
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Account unavailable"));
         Resume resume = resumeRepository.findByUserId(user.getId())
                 .filter(r -> r.getStatus() == Resume.Status.ACTIVE)
                 .orElseThrow(NoActiveResumeException::new);
@@ -131,9 +132,12 @@ public class AnalysisService {
     @Transactional
     public int completeAnalysis(UUID id, ScoresDTO scores, String issuesJson, String model,
             String pipelineVersion) {
+        UUID userId = analysisRepository.findUserId(id);
+        if (userId == null || userRepository.findByIdForUpdate(userId).filter(User::isEnabled).isEmpty()) {
+            return 0;
+        }
         int rows = analysisRepository.complete(id, scores, issuesJson, model, pipelineVersion);
         if (rows == 1) {
-            UUID userId = analysisRepository.findUserId(id);
             usageRecordRepository.save(new UsageRecord(userRepository.getReferenceById(userId),
                     UsageRecord.Kind.ANALYSIS_COMPLETED, clock.instant()));
         }

@@ -46,6 +46,19 @@ public class ResumeService {
         this.clock = clock;
     }
 
+    private String currentUploadETag(String key) {
+        try {
+            return s3Client.putObject(request -> request.bucket(bucketName).key(key).ifNoneMatch("*"),
+                    software.amazon.awssdk.core.sync.RequestBody.empty()).eTag();
+        } catch (S3Exception failure) {
+            if (failure.statusCode() != 412) throw failure;
+            return s3Client.headObject(request -> request.bucket(bucketName).key(key)).eTag();
+        }
+    }
+
+    private static final Duration UPLOAD_URL_DURATION = Duration.ofMinutes(15);
+
+    @Transactional
     public ResumePresignUrlResponseDTO createPresignUploadUrl(UUID userId, String filename) {
         // Implementation for generating presigned upload URL
         if (userId == null) {
@@ -57,6 +70,7 @@ public class ResumeService {
         // Replacing deletes the Analyses, and deleting an in-flight one would
         // discard its result with no Usage record. Checked before the try
         // below, which would wrap this exception as a 500.
+        var user = requireActiveUserForUpdate(userId);
         rejectWhileAnalysisInFlight(userId);
 
         try {
@@ -72,19 +86,27 @@ public class ResumeService {
             resume.setStatus(Resume.Status.PENDING);
             resumeRepository.save(resume);
 
+            // A conditional PUT cannot recreate this key once deletion removes it.
+            String etag = currentUploadETag(key);
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
                     .contentType("application/pdf")
+                    .overrideConfiguration(config -> config.putHeader("If-Match", etag))
                     .build();
 
             PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
-                    .signatureDuration(java.time.Duration.ofMinutes(15))
+                    .signatureDuration(UPLOAD_URL_DURATION)
                     .putObjectRequest(putObjectRequest)
                     .build();
 
-            String presignedUrl = s3Presigner.presignPutObject(presignRequest).url().toString();
-            return new ResumePresignUrlResponseDTO(resume.getId(), presignedUrl);
+            var signed = s3Presigner.presignPutObject(presignRequest);
+            if (signed.signedHeaders().keySet().stream().noneMatch("If-Match"::equalsIgnoreCase)) {
+                throw new IllegalStateException("Upload URL must sign the If-Match header");
+            }
+            String presignedUrl = signed.url().toString();
+            user.setResumeUploadExpiresAt(clock.instant().plus(UPLOAD_URL_DURATION));
+            return new ResumePresignUrlResponseDTO(resume.getId(), presignedUrl, etag);
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate presigned URL", e);
         }
@@ -110,8 +132,14 @@ public class ResumeService {
      * between this check and the delete. Must run inside a transaction.
      */
     private void lockUserThenRejectWhileAnalysisInFlight(UUID userId) {
-        userRepository.findByIdForUpdate(userId);
+        requireActiveUserForUpdate(userId);
         rejectWhileAnalysisInFlight(userId);
+    }
+
+    private com.job_search.fair_path.entity.User requireActiveUserForUpdate(UUID userId) {
+        return userRepository.findByIdForUpdate(userId)
+                .filter(com.job_search.fair_path.entity.User::isEnabled)
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Account unavailable"));
     }
 
     private void rejectWhileAnalysisInFlight(UUID userId) {

@@ -22,7 +22,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // Optional is used a not guaranteed return of a user
     Optional<User> findByEmail(String email);
 
-    Optional<User> findByResetTokenHash(String resetTokenHash);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.email = :email")
+    Optional<User> findByEmailForUpdate(@Param("email") String email);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.resetTokenHash = :hash and u.enabled = true")
+    Optional<User> findActiveByResetTokenHashForUpdate(@Param("hash") String resetTokenHash);
 
     @Query("""
               select new com.job_search.fair_path.dataTransferObject.UserProfileDTO(

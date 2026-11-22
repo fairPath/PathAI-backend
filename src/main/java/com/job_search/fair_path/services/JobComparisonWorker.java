@@ -44,7 +44,7 @@ public class JobComparisonWorker {
         try {
             if (task.resumeId() == null || task.s3Key() == null || task.resumeUpdatedAt() == null)
                 throw new ComparisonFailure("RESUME_REQUIRED", false);
-            var result = execution.call(task.requestId(), () -> client.compare(task));
+            var result = execution.call(task.requestId(), () -> queue.belongsToActiveAccount(task), () -> client.compare(task));
             if (result == null) return; // Same as Analysis: uncorrelated success is left for recovery.
             if (!queue.complete(task, result))
                 queue.fail(task, new ComparisonFailure("RESUME_CHANGED", true));

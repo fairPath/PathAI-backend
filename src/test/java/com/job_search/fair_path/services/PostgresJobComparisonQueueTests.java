@@ -46,6 +46,8 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
         var isolatedSource = new DriverManagerDataSource(url, username, password);
         isolatedSource.setSchema(schema);
         jdbc = new JdbcTemplate(isolatedSource);
+        jdbc.execute("CREATE TABLE users (id uuid PRIMARY KEY, enabled boolean)");
+        jdbc.update("INSERT INTO users VALUES (?, true)", userId);
         jdbc.execute("CREATE TABLE resume (id uuid PRIMARY KEY, user_id uuid UNIQUE, s3_key text, status text, updated_at timestamptz)");
         jdbc.update("INSERT INTO resume VALUES (?, ?, 'active.pdf', 'ACTIVE', CURRENT_TIMESTAMP)", resumeId, userId);
         jdbc.execute("""

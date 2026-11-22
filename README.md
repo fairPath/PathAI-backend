@@ -225,3 +225,16 @@ Match results include `skillMatchScore`, `experienceMatchScore`, total `matchSco
 a configured 50/50 average. All fields are cleared when a new check is requested.
 Resume snapshot fields and S3 cleanup have been removed. This contract assumes the
 owner clears/recreates the database schema; no migration or historical-data fallback is included.
+
+### Account deletion
+
+Before deploying the account deletion backend, provision the `account_deletion`
+queue table and its `due_at` index, add `users.resume_upload_expires_at`, and
+backfill existing NULL expirations to 15 minutes from execution in the shared
+Supabase SQL editor. Deploy the backend and frontend together.
+
+The résumé bucket CORS rule for browser PUTs must allow the `If-Match` header.
+Presigned PUTs use this signed condition so an upload cannot recreate the résumé
+after its object has been deleted. Before enabling deletion, retire older
+backend instances that issued unconditional PUT URLs and let their active URLs
+and accepted transfers drain. This feature assumes an unversioned résumé bucket.

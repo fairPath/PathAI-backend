@@ -69,6 +69,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             if (userId != null && authentication == null) {
                 UserDetails userDetails = this.userDetailsService.loadUserByUsername(userId);
+                if (!userDetails.isEnabled()) {
+                    writeAuthError(response, "ACCOUNT_UNAVAILABLE", "Account unavailable");
+                    return;
+                }
                 if (jwtService.isTokenValid(jwt, userDetails)) {
                     UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                             userDetails,
@@ -78,6 +82,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authToken);
                 }
             }
+        } catch (org.springframework.security.core.userdetails.UsernameNotFoundException ex) {
+            writeAuthError(response, "ACCOUNT_UNAVAILABLE", "Account unavailable");
+            return;
         } catch (ExpiredJwtException expiredJwtException) {
             writeAuthError(response, "TOKEN_EXPIRED", "JWT token has expired");
             return;

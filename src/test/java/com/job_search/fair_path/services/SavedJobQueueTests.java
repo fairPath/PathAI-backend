@@ -37,6 +37,7 @@ class SavedJobQueueTests {
     @BeforeEach
     void setup() {
         user.setId(UUID.randomUUID());
+        user.setEnabled(true);
         resume.setId(UUID.randomUUID());
         resume.setUserId(user.getId());
         resume.setUpdatedAt(Instant.now());

@@ -45,7 +45,7 @@ class AiExecutionParityTest {
         var refusal = new ResourceAccessException("synthetic", new ConnectException());
         Thread.currentThread().interrupt();
         try {
-            assertSame(refusal, assertThrows(ResourceAccessException.class, () -> execution.call(UUID.randomUUID(), () -> {
+            assertSame(refusal, assertThrows(ResourceAccessException.class, () -> execution.call(UUID.randomUUID(), () -> true, () -> {
                 calls.incrementAndGet();
                 throw refusal;
             })));
@@ -78,6 +78,7 @@ class AiExecutionParityTest {
             var client = mock(ResumeAnalysisAiClient.class);
             var request = new AnalyzeRequestDTO(id, "synthetic.pdf", new KnownPiiDTO(null, null, null));
             when(repo.claim(eq(id), any())).thenReturn(1);
+            when(repo.belongsToActiveAccount(id)).thenReturn(true);
             when(client.analyze(request)).thenThrow(failure);
             new AnalysisRunner(repo, client, new ObjectMapper(), execution, mock(AnalysisService.class)).run(request);
             verify(client, times(calls)).analyze(request);
@@ -89,6 +90,7 @@ class AiExecutionParityTest {
             var task = new JobComparisonQueue.Task(UUID.randomUUID(), id, UUID.randomUUID(),
                 "job", "synthetic.pdf", "Java", 1, UUID.randomUUID(), Instant.now());
             when(queue.claim()).thenReturn(Optional.of(task));
+            when(queue.belongsToActiveAccount(task)).thenReturn(true);
             when(client.compare(task)).thenThrow(failure);
             new JobComparisonWorker(queue, client, execution).processNext();
             verify(client, times(calls)).compare(task);

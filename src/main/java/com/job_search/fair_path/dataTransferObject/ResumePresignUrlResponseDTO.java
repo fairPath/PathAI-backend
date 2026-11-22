@@ -11,5 +11,6 @@ public class ResumePresignUrlResponseDTO {
 
     private UUID resumeId;
     private String presignedUrl;
+    private String etag;
 
 }

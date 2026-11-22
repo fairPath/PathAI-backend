@@ -60,7 +60,7 @@ public class SavedJobService {
 
         User user = authenticatedUser(authentication);
         UUID userId = user.getId();
-        userRepository.findByIdForUpdate(userId)
+        userRepository.findByIdForUpdate(userId).filter(User::isEnabled)
                 .orElseThrow(() -> new IllegalStateException("Authenticated user no longer exists"));
 
         SavedJobsEntity savedJob = savedJobsRepository.findForUpdate(userId, request.getJobId())
@@ -103,6 +103,8 @@ public class SavedJobService {
     @Transactional
     public JobResultDTO requestComparison(String jobId, Authentication authentication) {
         UUID userId = authenticatedUser(authentication).getId();
+        userRepository.findByIdForUpdate(userId).filter(User::isEnabled)
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Account unavailable"));
         SavedJobsEntity job = savedJobsRepository.findForUpdate(userId, jobId)
                 .orElseThrow(() -> new ComparisonFailure("JOB_NOT_FOUND", false));
         if ("PENDING".equals(job.getComparisonStatus())) return toDto(job);
