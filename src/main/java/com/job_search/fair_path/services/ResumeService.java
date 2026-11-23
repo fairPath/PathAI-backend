@@ -2,6 +2,7 @@ package com.job_search.fair_path.services;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -14,6 +15,7 @@ import com.job_search.fair_path.repository.ResumeRepository;
 import com.job_search.fair_path.repository.UserRepository;
 
 import jakarta.transaction.Transactional;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
@@ -26,6 +28,7 @@ import com.job_search.fair_path.exceptions.AnalysisInProgressException;
 
 @Service
 public class ResumeService {
+    private static final String UPLOAD_PLACEHOLDER = "resume-upload-placeholder";
     private final S3Presigner s3Presigner;
     private final S3Client s3Client;
     private final String bucketName;
@@ -48,8 +51,10 @@ public class ResumeService {
 
     private String currentUploadETag(String key) {
         try {
-            return s3Client.putObject(request -> request.bucket(bucketName).key(key).ifNoneMatch("*"),
-                    software.amazon.awssdk.core.sync.RequestBody.empty()).eTag();
+            // A recreated placeholder must have a different ETag from the deleted object.
+            return s3Client.putObject(request -> request.bucket(bucketName).key(key).ifNoneMatch("*")
+                    .metadata(Map.of(UPLOAD_PLACEHOLDER, "true")),
+                    RequestBody.fromString(UUID.randomUUID().toString())).eTag();
         } catch (S3Exception failure) {
             if (failure.statusCode() != 412) throw failure;
             return s3Client.headObject(request -> request.bucket(bucketName).key(key)).eTag();
@@ -182,7 +187,7 @@ public class ResumeService {
                     .orElseThrow(() -> new IllegalArgumentException(
                             "Resume not found for resume id: " + resumeId + " and user id: " + userId));
              HeadObjectResponse head = s3Client.headObject(b -> b.bucket(resume.getS3Bucket()).key(resume.getS3Key()));
-            if(head.contentLength() <= 0) {
+            if (head.contentLength() <= 0 || head.metadata().containsKey(UPLOAD_PLACEHOLDER)) {
                 throw new IllegalStateException("Uploaded resume file is empty");
             }
             
