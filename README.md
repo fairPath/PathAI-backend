@@ -228,10 +228,16 @@ owner clears/recreates the database schema; no migration or historical-data fall
 
 ### Account deletion
 
-Before deploying the account deletion backend, provision the `account_deletion`
-queue table and its `due_at` index, add `users.resume_upload_expires_at`, and
-backfill existing NULL expirations to 15 minutes from execution in the shared
-Supabase SQL editor. Deploy the backend and frontend together.
+Before deploying the account deletion backend, run the provisioning SQL in the
+backend PR in the shared Supabase SQL editor. It creates the queue and its
+`due_at` index and backfills upload expirations for existing users. Deploy the
+backend and frontend together.
+
+The backend S3 role needs `s3:ListBucket` for the résumé prefixes and
+`s3:DeleteObject` for their objects. Cleanup covers every object under
+`resumes/{userId}/`. The queue retains the failure count and latest safe error
+code for jobs that retry. The start notification is best effort and the queue
+does not store the user's email address.
 
 The résumé bucket CORS rule for browser PUTs must allow the `If-Match` header.
 Presigned PUTs use this signed condition so an upload cannot recreate the résumé

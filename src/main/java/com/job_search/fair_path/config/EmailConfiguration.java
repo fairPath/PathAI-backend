@@ -15,6 +15,15 @@ public class EmailConfiguration {
     @Value("${spring.mail.password}")
     private String password;
 
+    @Value("${spring.mail.properties.mail.smtp.connectiontimeout}")
+    private String connectionTimeout;
+
+    @Value("${spring.mail.properties.mail.smtp.timeout}")
+    private String readTimeout;
+
+    @Value("${spring.mail.properties.mail.smtp.writetimeout}")
+    private String writeTimeout;
+
     @Bean
     public JavaMailSender javaMailSender(){
         JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
@@ -27,9 +36,9 @@ public class EmailConfiguration {
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", "true");
         props.put("mail.smtp.starttls.enable", "true");
-        props.put("mail.smtp.connectiontimeout", "10000");
-        props.put("mail.smtp.timeout", "10000");
-        props.put("mail.smtp.writetimeout", "10000");
+        props.put("mail.smtp.connectiontimeout", connectionTimeout);
+        props.put("mail.smtp.timeout", readTimeout);
+        props.put("mail.smtp.writetimeout", writeTimeout);
         return mailSender;
 
     }

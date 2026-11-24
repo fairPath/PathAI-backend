@@ -52,10 +52,6 @@ public class AuthenticationService {
     }
 
     public void signUp(RegisterUserDTO input) {
-        if (accountDeletion.reservesEmail(input.getEmail())) {
-            throw new DuplicateKeyException("Email already exists");
-        }
-
         User user = new User(input.getFirstName(), input.getLastName(), input.getUsername(), input.getEmail(),
                 passwordEncoder.encode(input.getPassword()));
         user.setVerificationCode(generateVerificationCode());

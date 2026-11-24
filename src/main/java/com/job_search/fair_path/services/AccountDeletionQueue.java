@@ -11,8 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class AccountDeletionQueue {
-    public record Task(String tokenHash, UUID lease, UUID owner, String bucket, String key,
-            String email, Instant emailDeadline) {}
+    public record Task(String tokenHash, UUID lease, UUID owner, String bucket) {}
 
     private final JdbcTemplate jdbc;
 
@@ -28,28 +27,37 @@ public class AccountDeletionQueue {
                     WHERE due_at <= ? AND (lease_until IS NULL OR lease_until <= ?)
                     ORDER BY due_at LIMIT 1 FOR UPDATE SKIP LOCKED
                 )
-                RETURNING token_hash, lease, owner_id, bucket, object_key, email, email_deadline
-                """, (rs, row) -> {
-                    Timestamp deadline = rs.getTimestamp("email_deadline");
-                    return new Task(rs.getString("token_hash"), rs.getObject("lease", UUID.class),
-                            rs.getObject("owner_id", UUID.class), rs.getString("bucket"),
-                            rs.getString("object_key"), rs.getString("email"),
-                            deadline == null ? null : deadline.toInstant());
-                }, UUID.randomUUID(), Timestamp.from(leaseUntil), Timestamp.from(now), Timestamp.from(now))
+                RETURNING token_hash, lease, owner_id, bucket
+                """, (rs, row) -> new Task(rs.getString("token_hash"), rs.getObject("lease", UUID.class),
+                        rs.getObject("owner_id", UUID.class), rs.getString("bucket")),
+                UUID.randomUUID(), Timestamp.from(leaseUntil), Timestamp.from(now), Timestamp.from(now))
                 .stream().findFirst();
     }
 
+    public boolean renew(Task task, Instant now, Instant leaseUntil) {
+        return jdbc.update("""
+                UPDATE account_deletion SET lease_until = ?
+                WHERE token_hash = ? AND lease = ? AND lease_until > ?
+                """, Timestamp.from(leaseUntil), task.tokenHash(), task.lease(), Timestamp.from(now)) == 1;
+    }
+
+    public Optional<String> beginNotification(Task task, Instant now) {
+        // Record the attempt before contacting SMTP so a recovered lease cannot send it again.
+        return jdbc.query("""
+                UPDATE account_deletion SET notification_started = true
+                WHERE token_hash = ? AND lease = ? AND lease_until > ? AND NOT notification_started
+                RETURNING (SELECT email FROM users WHERE id = owner_id)
+                """, (rs, row) -> rs.getString(1), task.tokenHash(), task.lease(), Timestamp.from(now))
+                .stream().filter(java.util.Objects::nonNull).findFirst();
+    }
+
     @Transactional
-    public void finishCleanup(Task task, Instant now, Instant emailDeadline) {
-        int updated = jdbc.update("""
-                UPDATE account_deletion SET
-                    email = (SELECT email FROM users WHERE id = owner_id),
-                    owner_id = NULL, bucket = NULL, object_key = NULL,
-                    email_deadline = ?, due_at = ?, lease = NULL, lease_until = NULL
+    public void finishCleanup(Task task, Instant now) {
+        int deleted = jdbc.update("""
+                DELETE FROM account_deletion
                 WHERE token_hash = ? AND lease = ? AND lease_until > ? AND owner_id = ?
-                """, Timestamp.from(emailDeadline), Timestamp.from(now), task.tokenHash(), task.lease(),
-                Timestamp.from(now), task.owner());
-        if (updated == 0) return;
+                """, task.tokenHash(), task.lease(), Timestamp.from(now), task.owner());
+        if (deleted == 0) return;
 
         jdbc.update("DELETE FROM analysis WHERE user_id = ?", task.owner());
         jdbc.update("DELETE FROM saved_jobs WHERE user_id = ?", task.owner());
@@ -58,17 +66,11 @@ public class AccountDeletionQueue {
         jdbc.update("DELETE FROM users WHERE id = ?", task.owner());
     }
 
-    public void retry(Task task, Instant dueAt) {
+    public void retry(Task task, Instant dueAt, String errorCode) {
         jdbc.update("""
-                UPDATE account_deletion SET due_at = ?, lease = NULL, lease_until = NULL
+                UPDATE account_deletion SET due_at = ?, lease = NULL, lease_until = NULL,
+                    attempts = attempts + 1, last_error = ?
                 WHERE token_hash = ? AND lease = ?
-                """, Timestamp.from(dueAt), task.tokenHash(), task.lease());
-    }
-
-    public void forget(Task task) {
-        jdbc.update("""
-                DELETE FROM account_deletion
-                WHERE token_hash = ? AND lease = ? AND owner_id IS NULL
-                """, task.tokenHash(), task.lease());
+                """, Timestamp.from(dueAt), errorCode, task.tokenHash(), task.lease());
     }
 }

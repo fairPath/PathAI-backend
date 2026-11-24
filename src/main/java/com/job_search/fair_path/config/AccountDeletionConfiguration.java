@@ -9,7 +9,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 @Configuration
 @ConditionalOnProperty(
-        name = "fairpath.account-deletion.scheduling-enabled", matchIfMissing = true)
+        name = "fairpath.account-deletion.scheduling-enabled", havingValue = "true")
 public class AccountDeletionConfiguration {
     private final AccountDeletionWorker worker;
 
@@ -17,7 +17,7 @@ public class AccountDeletionConfiguration {
         this.worker = worker;
     }
 
-    @Scheduled(fixedDelayString = "${fairpath.account-deletion.poll-interval:2s}",
+    @Scheduled(fixedDelayString = "${fairpath.account-deletion.poll-interval}",
             scheduler = "accountDeletionScheduler")
     public void poll() {
         worker.run();

@@ -36,9 +36,11 @@ public class ResumeService {
     private final AnalysisRepository analysisRepository;
     private final UserRepository userRepository;
     private final Clock clock;
+    private final Duration uploadUrlDuration;
 
     public ResumeService(S3Presigner s3Presigner, S3Client s3Client, @Value("${aws.s3.bucket}") String bucketName,
-            ResumeRepository resumeRepository, AnalysisRepository analysisRepository, UserRepository userRepository, Clock clock) {
+            ResumeRepository resumeRepository, AnalysisRepository analysisRepository, UserRepository userRepository, Clock clock,
+            @Value("${fairpath.resume.upload-url-duration}") Duration uploadUrlDuration) {
 
         this.s3Presigner = s3Presigner;
         this.s3Client = s3Client;
@@ -47,6 +49,7 @@ public class ResumeService {
         this.analysisRepository = analysisRepository;
         this.userRepository = userRepository;
         this.clock = clock;
+        this.uploadUrlDuration = uploadUrlDuration;
     }
 
     private String currentUploadETag(String key) {
@@ -60,8 +63,6 @@ public class ResumeService {
             return s3Client.headObject(request -> request.bucket(bucketName).key(key)).eTag();
         }
     }
-
-    private static final Duration UPLOAD_URL_DURATION = Duration.ofMinutes(15);
 
     @Transactional
     public ResumePresignUrlResponseDTO createPresignUploadUrl(UUID userId, String filename) {
@@ -101,7 +102,7 @@ public class ResumeService {
                     .build();
 
             PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
-                    .signatureDuration(UPLOAD_URL_DURATION)
+                    .signatureDuration(uploadUrlDuration)
                     .putObjectRequest(putObjectRequest)
                     .build();
 
@@ -110,7 +111,7 @@ public class ResumeService {
                 throw new IllegalStateException("Upload URL must sign the If-Match header");
             }
             String presignedUrl = signed.url().toString();
-            user.setResumeUploadExpiresAt(clock.instant().plus(UPLOAD_URL_DURATION));
+            user.setResumeUploadExpiresAt(clock.instant().plus(uploadUrlDuration));
             return new ResumePresignUrlResponseDTO(resume.getId(), presignedUrl, etag);
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate presigned URL", e);
@@ -142,8 +143,7 @@ public class ResumeService {
     }
 
     private com.job_search.fair_path.entity.User requireActiveUserForUpdate(UUID userId) {
-        return userRepository.findByIdForUpdate(userId)
-                .filter(com.job_search.fair_path.entity.User::isEnabled)
+        return userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Account unavailable"));
     }
 

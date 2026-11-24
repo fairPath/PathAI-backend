@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.sql.Timestamp;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -17,6 +19,13 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
+import software.amazon.awssdk.services.s3.model.S3Error;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
@@ -37,13 +46,11 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.job_search.fair_path.dataTransferObject.RegisterUserDTO;
 import com.job_search.fair_path.entity.User;
 import com.job_search.fair_path.repository.UserRepository;
 import com.job_search.fair_path.services.AccountDeletionQueue;
 import com.job_search.fair_path.services.AccountDeletionService;
 import com.job_search.fair_path.services.AccountDeletionWorker;
-import com.job_search.fair_path.services.AuthenticationService;
 import com.job_search.fair_path.services.EmailService;
 import com.job_search.fair_path.services.JwtService;
 import com.job_search.fair_path.services.ResumeService;
@@ -64,7 +71,6 @@ class AccountDeletionTest extends IntegrationTestBase {
     @Autowired AccountDeletionWorker worker;
     @Autowired AccountDeletionQueue queue;
     @Autowired ResumeService resumeService;
-    @Autowired AuthenticationService auth;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean EmailService mail;
 
@@ -78,38 +84,64 @@ class AccountDeletionTest extends IntegrationTestBase {
     }
 
     @Test
-    void locksSessionsDeletesUsageAndSendsConfirmationBeforeReleasingSignup() throws Exception {
+    void locksSessionsAndDeletesEveryOwnedRowAndObject() throws Exception {
         mvc.perform(post("/account/deletion").header("Authorization", bearer())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"password\":\"wrong\"}"))
                 .andExpect(status().isBadRequest());
         assertThat(users.findById(owner.getId()).orElseThrow().isEnabled()).isTrue();
-        jdbc.update("INSERT INTO usage_record (id, user_id, kind, occurred_at) VALUES (gen_random_uuid(), ?, ?, ?)",
-                owner.getId(), "ANALYSIS_COMPLETED", Timestamp.from(clock.instant()));
+
+        String prefix = "resumes/" + owner.getId() + "/";
+        var keys = List.of(prefix + "active.pdf", prefix + "original.pdf",
+                prefix + "saved-job-snapshots/snapshot.pdf");
+        seedOwnedData(keys.get(0));
+        when(s3Client.listObjectsV2(org.mockito.ArgumentMatchers.<Consumer<ListObjectsV2Request.Builder>>any()))
+                .thenAnswer(call -> {
+                    var builder = ListObjectsV2Request.builder();
+                    call.<Consumer<ListObjectsV2Request.Builder>>getArgument(0).accept(builder);
+                    var request = builder.build();
+                    assertThat(request.prefix()).isEqualTo(prefix);
+                    assertThat(request.bucket()).isEqualTo("test-bucket");
+                    if (request.continuationToken() == null) {
+                        return objectPage(keys.subList(0, 2), "next-page");
+                    }
+                    assertThat(request.continuationToken()).isEqualTo("next-page");
+                    return objectPage(keys.subList(2, 3), null);
+                });
+        var removed = new ArrayList<String>();
+        when(s3Client.deleteObjects(org.mockito.ArgumentMatchers.<Consumer<DeleteObjectsRequest.Builder>>any()))
+                .thenAnswer(call -> {
+                    var builder = DeleteObjectsRequest.builder();
+                    call.<Consumer<DeleteObjectsRequest.Builder>>getArgument(0).accept(builder);
+                    var request = builder.build();
+                    assertThat(request.bucket()).isEqualTo("test-bucket");
+                    removed.addAll(request.delete().objects().stream().map(ObjectIdentifier::key).toList());
+                    return DeleteObjectsResponse.builder().build();
+                });
+        doThrow(new jakarta.mail.MessagingException("synthetic mail failure"))
+                .when(mail).sendDeletionStarted(EMAIL);
 
         String token = requestDeletion();
         assertThat(deletion.status(token)).isEqualTo("requested");
+        assertThat(users.findById(owner.getId()).orElseThrow().isEnabled()).isFalse();
         mvc.perform(post("/account/deletion").header("Authorization", bearer())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"password\":\"synthetic-password\"}"))
                 .andExpect(status().isUnauthorized());
 
         worker.run();
-        assertThat(deletion.status(token)).isEqualTo("completed");
-        assertThat(users.findById(owner.getId())).isEmpty();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM usage_record WHERE user_id = ?", Long.class,
-                owner.getId())).isZero();
-        var signup = new RegisterUserDTO();
-        signup.setEmail(EMAIL);
-        assertThatThrownBy(() -> auth.signUp(signup))
-                .isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
-
         worker.run();
-        verify(mail).sendDeletionConfirmation(EMAIL);
+        verify(mail).sendDeletionStarted(EMAIL);
+        assertThat(removed).containsExactlyElementsOf(keys);
+        for (String table : List.of("analysis", "saved_jobs", "usage_record", "resume", "account_deletion")) {
+            String ownerColumn = table.equals("account_deletion") ? "owner_id" : "user_id";
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE " + ownerColumn + " = ?",
+                    Long.class, owner.getId())).as(table).isZero();
+        }
+        assertThat(users.findById(owner.getId())).isEmpty();
         assertThat(deletion.status(token)).isEqualTo("missing");
-        assertThat(deletion.reservesEmail(EMAIL)).isFalse();
     }
 
     @Test
-    void waitsForUploadAndRecoversExpiredLeaseThenDropsExhaustedMailJob() throws Exception {
+    void waitsForUploadAndRecoversExpiredLeaseThenRecordsS3FailureAndRetriesCleanup() throws Exception {
         owner.setResumeUploadExpiresAt(clock.instant().plus(Duration.ofMinutes(15)));
         owner = users.saveAndFlush(owner);
         String token = requestDeletion();
@@ -122,17 +154,50 @@ class AccountDeletionTest extends IntegrationTestBase {
         worker.run();
         assertThat(deletion.status(token)).isEqualTo("requested");
 
+        String key = "resumes/" + owner.getId() + "/active.pdf";
+        when(s3Client.listObjectsV2(org.mockito.ArgumentMatchers.<Consumer<ListObjectsV2Request.Builder>>any()))
+                .thenReturn(objectPage(List.of(key), null));
+        when(s3Client.deleteObjects(org.mockito.ArgumentMatchers.<Consumer<DeleteObjectsRequest.Builder>>any()))
+                .thenReturn(DeleteObjectsResponse.builder().errors(
+                        S3Error.builder().key(key).code("AccessDenied").message("synthetic private detail").build()).build(),
+                        DeleteObjectsResponse.builder().build());
+
         clock.advance(Duration.ofSeconds(31));
         worker.run();
-        assertThat(deletion.status(token)).isEqualTo("completed");
-        doThrow(new jakarta.mail.MessagingException("temporary synthetic failure"))
-                .when(mail).sendDeletionConfirmation(EMAIL);
-        worker.run();
-        assertThat(deletion.reservesEmail(EMAIL)).isTrue();
-        clock.advance(Duration.ofMinutes(15));
+        assertThat(deletion.status(token)).isEqualTo("requested");
+        assertThat(users.findById(owner.getId()).orElseThrow().isEnabled()).isFalse();
+        var failure = jdbc.queryForMap("SELECT attempts, last_error FROM account_deletion WHERE owner_id = ?",
+                owner.getId());
+        assertThat(failure).containsEntry("attempts", 1).containsEntry("last_error", "AccessDenied");
+
+        clock.advance(Duration.ofSeconds(31));
         worker.run();
         assertThat(deletion.status(token)).isEqualTo("missing");
-        assertThat(deletion.reservesEmail(EMAIL)).isFalse();
+        verify(mail).sendDeletionStarted(EMAIL);
+    }
+
+    private ListObjectsV2Response objectPage(List<String> keys, String nextToken) {
+        return ListObjectsV2Response.builder().nextContinuationToken(nextToken)
+                .contents(keys.stream().map(key -> S3Object.builder().key(key).build()).toList()).build();
+    }
+
+    private void seedOwnedData(String key) {
+        UUID resumeId = UUID.randomUUID();
+        Timestamp now = Timestamp.from(clock.instant());
+        jdbc.update("""
+                INSERT INTO resume (id, user_id, s3_bucket, s3_key, file_name, status, created_at, updated_at)
+                VALUES (?, ?, 'test-bucket', ?, 'synthetic.pdf', 'ACTIVE', ?, ?)
+                """, resumeId, owner.getId(), key, now, now);
+        jdbc.update("""
+                INSERT INTO analysis (id, user_id, resume_id, status, created_at)
+                VALUES (?, ?, ?, 'COMPLETED', ?)
+                """, UUID.randomUUID(), owner.getId(), resumeId, now);
+        jdbc.update("""
+                INSERT INTO saved_jobs (id, user_id, job_id, resume_id, comparison_status)
+                VALUES (?, ?, 'synthetic-job', ?, 'COMPLETED')
+                """, UUID.randomUUID(), owner.getId(), resumeId);
+        jdbc.update("INSERT INTO usage_record (id, user_id, kind, occurred_at) VALUES (?, ?, ?, ?)",
+                UUID.randomUUID(), owner.getId(), "ANALYSIS_COMPLETED", now);
     }
 
     @Test

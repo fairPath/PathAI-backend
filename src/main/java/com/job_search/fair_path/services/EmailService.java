@@ -17,13 +17,13 @@ public class EmailService {
     @org.springframework.beans.factory.annotation.Value("${spring.mail.username}")
     private String sender;
 
-    public void sendDeletionConfirmation(String to) throws MessagingException {
+    public void sendDeletionStarted(String to) throws MessagingException {
         MimeMessage message = emailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message);
         helper.setFrom(sender);
         helper.setTo(to);
-        helper.setSubject("FairPath account deleted");
-        helper.setText("Your FairPath account and its data have been deleted.");
+        helper.setSubject("FairPath account deletion started");
+        helper.setText("Your FairPath account is being deleted.");
         emailSender.send(message);
     }
 

@@ -36,7 +36,7 @@ public class AccountDeletionService {
 
     public AccountDeletionService(UserRepository users, ResumeRepository resumes, PasswordEncoder passwords,
             JdbcTemplate jdbc, Clock clock, @Value("${aws.s3.bucket}") String bucket,
-            @Value("${fairpath.account-deletion.upload-drain:1m}") Duration uploadDrain) {
+            @Value("${fairpath.account-deletion.upload-drain}") Duration uploadDrain) {
         this.users = users;
         this.resumes = resumes;
         this.passwords = passwords;
@@ -48,8 +48,7 @@ public class AccountDeletionService {
 
     @Transactional
     public String request(UUID owner, String password) {
-        User user = users.findByIdForUpdate(owner)
-                .filter(User::isEnabled)
+        User user = users.findActiveByIdForUpdate(owner)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
         if (password == null || !passwords.matches(password, user.getPassword())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Incorrect password");
@@ -64,37 +63,29 @@ public class AccountDeletionService {
         random.nextBytes(secret);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
 
+        int disabled = jdbc.update("""
+                UPDATE users SET enabled = false, verification_code = NULL, verification_expiration = NULL,
+                    reset_token_hash = NULL, reset_expiration = NULL
+                WHERE id = ? AND enabled = true
+                """, owner);
+        if (disabled == 0) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         jdbc.update("""
-                INSERT INTO account_deletion (token_hash, owner_id, bucket, object_key, due_at)
-                VALUES (?, ?, ?, ?, ?)
-                """, hash(token), owner, resume.map(r -> r.getS3Bucket()).orElse(bucket),
-                resume.map(r -> r.getS3Key()).orElse("resumes/" + owner + "/active.pdf"), Timestamp.from(due));
-        user.setEnabled(false);
-        user.setVerificationCode(null);
-        user.setVerificationCodeExpiresAt(null);
-        user.setResetTokenHash(null);
-        user.setResetTokenExpiresAt(null);
+                INSERT INTO account_deletion (token_hash, owner_id, bucket, due_at)
+                VALUES (?, ?, ?, ?)
+                """, hash(token), owner, resume.map(r -> r.getS3Bucket()).orElse(bucket), Timestamp.from(due));
         return token;
     }
 
     public String status(String token) {
         if (token == null || token.length() != 43) return "missing";
-        return jdbc.query("SELECT owner_id IS NULL FROM account_deletion WHERE token_hash = ?",
-                (rs, row) -> rs.getBoolean(1) ? "completed" : "requested", hash(token))
-                .stream().findFirst().orElse("missing");
+        return Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM account_deletion WHERE token_hash = ?)", Boolean.class, hash(token)))
+                ? "requested" : "missing";
     }
 
     public boolean isPending(UUID owner) {
         return Boolean.TRUE.equals(jdbc.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM account_deletion WHERE owner_id = ?)", Boolean.class, owner));
-    }
-
-    public boolean reservesEmail(String email) {
-        return Boolean.TRUE.equals(jdbc.queryForObject(
-                """
-                SELECT EXISTS (SELECT 1 FROM users WHERE email = ?)
-                    OR EXISTS (SELECT 1 FROM account_deletion WHERE email = ?)
-                """, Boolean.class, email, email));
     }
 
     private static String hash(String token) {
