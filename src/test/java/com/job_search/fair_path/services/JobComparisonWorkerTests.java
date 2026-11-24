@@ -24,6 +24,7 @@ class JobComparisonWorkerTests {
     @Test
     void successfulComparisonIsPersistedWithItsClaim() throws Exception {
         when(queue.claim()).thenReturn(Optional.of(task));
+        when(queue.belongsToActiveAccount(task)).thenReturn(true);
         var result = new JobComparisonClient.Result(85, List.of("Java"), List.of(), "Experience", List.of(), 90, 70, "Highlight your relevant projects.");
         when(client.compare(task)).thenReturn(result);
         when(queue.complete(task, result)).thenReturn(true);
@@ -37,6 +38,7 @@ class JobComparisonWorkerTests {
     @Test
     void failedInferenceIsRetriedWithoutDeletingTheSavedJob() throws Exception {
         when(queue.claim()).thenReturn(Optional.of(task));
+        when(queue.belongsToActiveAccount(task)).thenReturn(true);
         when(client.compare(task)).thenThrow(new org.springframework.web.client.ResourceAccessException("Synthetic refusal", new java.net.ConnectException()));
 
         new JobComparisonWorker(queue, client, execution()).processNext();
@@ -49,6 +51,7 @@ class JobComparisonWorkerTests {
     @Test
     void staleResumeResultIsDiscardedAndAllowsManualRetry() throws Exception {
         when(queue.claim()).thenReturn(Optional.of(task));
+        when(queue.belongsToActiveAccount(task)).thenReturn(true);
         var result = new JobComparisonClient.Result(85, List.of(), List.of(), "", List.of(), 90, 70, "Highlight your relevant projects.");
         when(client.compare(task)).thenReturn(result);
         when(queue.complete(task, result)).thenReturn(false);
@@ -59,6 +62,7 @@ class JobComparisonWorkerTests {
     @Test
     void featurePreconditionRetainsItsExplicitFailure() throws Exception {
         when(queue.claim()).thenReturn(Optional.of(task));
+        when(queue.belongsToActiveAccount(task)).thenReturn(true);
         when(client.compare(task)).thenThrow(new ComparisonFailure("RESUME_REQUIRED", false));
         new JobComparisonWorker(queue, client, execution()).processNext();
         verify(queue).fail(eq(task), argThat(f -> !f.retryable() && f.errorCode().equals("RESUME_REQUIRED")));
@@ -86,6 +90,7 @@ class JobComparisonWorkerTests {
     @Test
     void transientDatabaseFailureRemainsRetryable() throws Exception {
         when(queue.claim()).thenReturn(Optional.of(task));
+        when(queue.belongsToActiveAccount(task)).thenReturn(true);
         var result = new JobComparisonClient.Result(85, List.of(), List.of(), "", List.of(), 90, 80, "Highlight relevant projects.");
         when(client.compare(task)).thenReturn(result);
         when(queue.complete(task, result)).thenThrow(new org.springframework.dao.CannotAcquireLockException("Synthetic lock timeout"));

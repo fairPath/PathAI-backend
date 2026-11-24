@@ -72,6 +72,13 @@ public class JobComparisonQueue {
                 }, UUID.randomUUID(), UUID.randomUUID(), leaseSeconds, requestId, requestId).stream().findFirst();
     }
 
+    public boolean belongsToActiveAccount(Task task) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM saved_jobs j JOIN users u ON u.id = j.user_id
+                    WHERE j.id = ? AND j.comparison_lease_token = ? AND u.enabled)
+                """, Boolean.class, task.savedJobId(), task.leaseToken()));
+    }
+
     public boolean complete(Task task, JobComparisonClient.Result result) throws JsonProcessingException {
         result.validate();
         return jdbc.update("""

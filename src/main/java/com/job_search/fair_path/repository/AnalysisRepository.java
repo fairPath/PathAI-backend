@@ -33,6 +33,12 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
     @Query("select a.userId from Analysis a where a.id = :id")
     UUID findUserId(@Param("id") UUID id);
 
+    @Query("""
+            select count(a) > 0 from Analysis a, User u
+            where a.id = :id and u.id = a.userId and u.enabled = true
+            """)
+    boolean belongsToActiveAccount(@Param("id") UUID id);
+
     /** Deletes every Analysis of the user. Usage records are untouched. */
     @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)

@@ -86,7 +86,7 @@ public class AnalysisRunner {
 
         AnalyzeResponseDTO response;
         try {
-            response = execution.call(id, () -> aiClient.analyze(request));
+            response = execution.call(id, () -> analysisRepository.belongsToActiveAccount(id), () -> aiClient.analyze(request));
         } catch (RuntimeException e) {
             // The envelope belongs to another Analysis: leave the row, like a mismatched 200.
             if (e instanceof AiServiceException ex && ex.correlationId() != null
