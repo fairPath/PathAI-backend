@@ -2,6 +2,7 @@ package com.job_search.fair_path.services;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -14,6 +15,7 @@ import com.job_search.fair_path.repository.ResumeRepository;
 import com.job_search.fair_path.repository.UserRepository;
 
 import jakarta.transaction.Transactional;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
@@ -26,6 +28,7 @@ import com.job_search.fair_path.exceptions.AnalysisInProgressException;
 
 @Service
 public class ResumeService {
+    private static final String UPLOAD_PLACEHOLDER = "resume-upload-placeholder";
     private final S3Presigner s3Presigner;
     private final S3Client s3Client;
     private final String bucketName;
@@ -33,9 +36,11 @@ public class ResumeService {
     private final AnalysisRepository analysisRepository;
     private final UserRepository userRepository;
     private final Clock clock;
+    private final Duration uploadUrlDuration;
 
     public ResumeService(S3Presigner s3Presigner, S3Client s3Client, @Value("${aws.s3.bucket}") String bucketName,
-            ResumeRepository resumeRepository, AnalysisRepository analysisRepository, UserRepository userRepository, Clock clock) {
+            ResumeRepository resumeRepository, AnalysisRepository analysisRepository, UserRepository userRepository, Clock clock,
+            @Value("${fairpath.resume.upload-url-duration}") Duration uploadUrlDuration) {
 
         this.s3Presigner = s3Presigner;
         this.s3Client = s3Client;
@@ -44,8 +49,22 @@ public class ResumeService {
         this.analysisRepository = analysisRepository;
         this.userRepository = userRepository;
         this.clock = clock;
+        this.uploadUrlDuration = uploadUrlDuration;
     }
 
+    private String currentUploadETag(String key) {
+        try {
+            // A recreated placeholder must have a different ETag from the deleted object.
+            return s3Client.putObject(request -> request.bucket(bucketName).key(key).ifNoneMatch("*")
+                    .metadata(Map.of(UPLOAD_PLACEHOLDER, "true")),
+                    RequestBody.fromString(UUID.randomUUID().toString())).eTag();
+        } catch (S3Exception failure) {
+            if (failure.statusCode() != 412) throw failure;
+            return s3Client.headObject(request -> request.bucket(bucketName).key(key)).eTag();
+        }
+    }
+
+    @Transactional
     public ResumePresignUrlResponseDTO createPresignUploadUrl(UUID userId, String filename) {
         // Implementation for generating presigned upload URL
         if (userId == null) {
@@ -57,6 +76,7 @@ public class ResumeService {
         // Replacing deletes the Analyses, and deleting an in-flight one would
         // discard its result with no Usage record. Checked before the try
         // below, which would wrap this exception as a 500.
+        var user = requireActiveUserForUpdate(userId);
         rejectWhileAnalysisInFlight(userId);
 
         try {
@@ -72,19 +92,27 @@ public class ResumeService {
             resume.setStatus(Resume.Status.PENDING);
             resumeRepository.save(resume);
 
+            // A conditional PUT cannot recreate this key once deletion removes it.
+            String etag = currentUploadETag(key);
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
                     .contentType("application/pdf")
+                    .overrideConfiguration(config -> config.putHeader("If-Match", etag))
                     .build();
 
             PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
-                    .signatureDuration(java.time.Duration.ofMinutes(15))
+                    .signatureDuration(uploadUrlDuration)
                     .putObjectRequest(putObjectRequest)
                     .build();
 
-            String presignedUrl = s3Presigner.presignPutObject(presignRequest).url().toString();
-            return new ResumePresignUrlResponseDTO(resume.getId(), presignedUrl);
+            var signed = s3Presigner.presignPutObject(presignRequest);
+            if (signed.signedHeaders().keySet().stream().noneMatch("If-Match"::equalsIgnoreCase)) {
+                throw new IllegalStateException("Upload URL must sign the If-Match header");
+            }
+            String presignedUrl = signed.url().toString();
+            user.setResumeUploadExpiresAt(clock.instant().plus(uploadUrlDuration));
+            return new ResumePresignUrlResponseDTO(resume.getId(), presignedUrl, etag);
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate presigned URL", e);
         }
@@ -110,8 +138,13 @@ public class ResumeService {
      * between this check and the delete. Must run inside a transaction.
      */
     private void lockUserThenRejectWhileAnalysisInFlight(UUID userId) {
-        userRepository.findByIdForUpdate(userId);
+        requireActiveUserForUpdate(userId);
         rejectWhileAnalysisInFlight(userId);
+    }
+
+    private com.job_search.fair_path.entity.User requireActiveUserForUpdate(UUID userId) {
+        return userRepository.findActiveByIdForUpdate(userId)
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Account unavailable"));
     }
 
     private void rejectWhileAnalysisInFlight(UUID userId) {
@@ -154,7 +187,7 @@ public class ResumeService {
                     .orElseThrow(() -> new IllegalArgumentException(
                             "Resume not found for resume id: " + resumeId + " and user id: " + userId));
              HeadObjectResponse head = s3Client.headObject(b -> b.bucket(resume.getS3Bucket()).key(resume.getS3Key()));
-            if(head.contentLength() <= 0) {
+            if (head.contentLength() <= 0 || head.metadata().containsKey(UPLOAD_PLACEHOLDER)) {
                 throw new IllegalStateException("Uploaded resume file is empty");
             }
             

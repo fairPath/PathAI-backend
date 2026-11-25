@@ -2,7 +2,7 @@
 -- TRUNCATE (not a rolled-back transaction) because Analysis tests check
 -- after-commit behaviour and compare-and-set across separate transactions,
 -- which only see real commits.
-TRUNCATE TABLE usage_record, analysis, saved_jobs, resume, users RESTART IDENTITY CASCADE;
+TRUNCATE TABLE account_deletion, usage_record, analysis, saved_jobs, resume, users RESTART IDENTITY CASCADE;
 
 -- The one-in-flight index: ddl-auto=update cannot create it. This is the same
 -- statement the README's "Manual schema changes" gives for Supabase, so the

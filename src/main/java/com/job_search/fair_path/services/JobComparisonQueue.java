@@ -48,7 +48,9 @@ public class JobComparisonQueue {
                     comparison_attempts = COALESCE(job.comparison_attempts, 0) + 1
                 WHERE job.id = (
                     SELECT id FROM saved_jobs
-                    WHERE comparison_status = 'PENDING' AND COALESCE(comparison_attempts, 0) = 0
+                    WHERE comparison_status = 'PENDING'
+                        AND EXISTS (SELECT 1 FROM users u WHERE u.id = saved_jobs.user_id AND u.enabled)
+                        AND COALESCE(comparison_attempts, 0) = 0
                         AND (CAST(? AS uuid) IS NULL OR comparison_request_id = ?)
                         AND (comparison_next_attempt_at IS NULL OR comparison_next_attempt_at <= CURRENT_TIMESTAMP)
                         AND (comparison_lease_until IS NULL OR comparison_lease_until <= CURRENT_TIMESTAMP)
@@ -82,6 +84,7 @@ public class JobComparisonQueue {
                     comparison_lease_token = NULL, comparison_lease_until = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE job.id = ? AND comparison_request_id = ? AND comparison_lease_token = ?
                     AND comparison_status = 'PENDING' AND comparison_lease_until > CURRENT_TIMESTAMP
+                    AND EXISTS (SELECT 1 FROM users u WHERE u.id = job.user_id AND u.enabled FOR SHARE)
                     AND EXISTS (SELECT 1 FROM resume r WHERE r.user_id = job.user_id
                         AND r.id = ? AND r.updated_at = ? AND r.status = 'ACTIVE' AND r.s3_key = ?)
                 """, result.matchScore(), result.skillMatchScore(), result.experienceMatchScore(), result.resumeAdvice(),

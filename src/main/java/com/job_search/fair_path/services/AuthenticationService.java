@@ -37,19 +37,21 @@ public class AuthenticationService {
     private final AuthenticationManager authenticationManager;
     private final EmailService emailService;
 
+    private final AccountDeletionService accountDeletion;
+
     public AuthenticationService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             AuthenticationManager authenticationManager,
-            EmailService emailService) {
+            EmailService emailService, AccountDeletionService accountDeletion) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.emailService = emailService;
+        this.accountDeletion = accountDeletion;
     }
 
     public void signUp(RegisterUserDTO input) {
-
         User user = new User(input.getFirstName(), input.getLastName(), input.getUsername(), input.getEmail(),
                 passwordEncoder.encode(input.getPassword()));
         user.setVerificationCode(generateVerificationCode());
@@ -83,8 +85,10 @@ public class AuthenticationService {
         return user;
     }
 
+    @Transactional
     public void verifyUser(VerifyUserDTO input) {
-        Optional<User> userOptional = userRepository.findByEmail(input.getEmail());
+        Optional<User> userOptional = userRepository.findByEmailForUpdate(input.getEmail())
+                .filter(user -> !accountDeletion.isPending(user.getId()));
         // checking to see if user is present in our User Table
         if (userOptional.isPresent()) {
             User user = userOptional.get();
@@ -108,8 +112,10 @@ public class AuthenticationService {
         }
     }
 
+    @Transactional
     public void resendVerificationCode(AuthUserDTO input) {
-        Optional<User> optionalUser = userRepository.findByEmail(input.getEmail());
+        Optional<User> optionalUser = userRepository.findByEmailForUpdate(input.getEmail())
+                .filter(user -> !accountDeletion.isPending(user.getId()));
         if (optionalUser.isPresent()) {
             User user = optionalUser.get();
             if (user.isEnabled()) {
@@ -170,8 +176,10 @@ public class AuthenticationService {
         }
     }
 
+    @Transactional
     public void sendForgotPasswordEmail(ForgotPasswordDTO input) {
-        Optional<User> optionalUser = userRepository.findByEmail(input.getEmail());
+        Optional<User> optionalUser = userRepository.findByEmailForUpdate(input.getEmail())
+                .filter(user -> !accountDeletion.isPending(user.getId()));
         // need to generate token or unique code for resetting password
         if (optionalUser.isPresent()) {
             User user = optionalUser.get();
@@ -212,7 +220,7 @@ public class AuthenticationService {
     @Transactional
     public void updatePassword(UpdatePasswordDTO input) {
         String resetHash = generateResetHash(input.getResetToken());
-        Optional<User> userOptional = userRepository.findByResetTokenHash(resetHash);
+        Optional<User> userOptional = userRepository.findActiveByResetTokenHashForUpdate(resetHash);
         if (userOptional.isPresent()) {
 
             User user = userOptional.get();

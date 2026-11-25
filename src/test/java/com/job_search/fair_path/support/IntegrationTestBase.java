@@ -36,7 +36,7 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 // MERGE so a method-level @Sql runs after the reset instead of replacing it.
 @SqlMergeMode(MergeMode.MERGE)
 // Every test starts from empty application tables; see sql/reset.sql for why TRUNCATE.
-@Sql(scripts = "/sql/reset.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
+@Sql(scripts = {"/sql/account-deletion-fixture.sql", "/sql/reset.sql"}, executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
 public abstract class IntegrationTestBase {
 
     public static final String AI_SERVICE_TOKEN = "test-internal-token";

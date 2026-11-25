@@ -60,6 +60,7 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
     @Query("""
             update Analysis a set a.status = :to, a.startedAt = :startedAt
             where a.id = :id and a.status = :from
+                and exists (select 1 from User u where u.id = a.userId and u.enabled = true)
             """)
     int markProcessing(@Param("id") UUID id, @Param("startedAt") Instant startedAt,
             @Param("from") Status from, @Param("to") Status to);
@@ -72,6 +73,7 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
                 a.scoreWriting = :writing, a.scoreOverall = :overall,
                 a.issues = :issues, a.model = :model, a.pipelineVersion = :pipelineVersion
             where a.id = :id and a.status = :from
+                and exists (select 1 from User u where u.id = a.userId and u.enabled = true)
             """)
     int storeResult(@Param("id") UUID id, @Param("formatting") int formatting,
             @Param("parseability") int parseability, @Param("writing") int writing,
@@ -84,6 +86,7 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
     @Query("""
             update Analysis a set a.status = :to, a.errorCode = :errorCode
             where a.id = :id and a.status = :from
+                and exists (select 1 from User u where u.id = a.userId and u.enabled = true)
             """)
     int markFailed(@Param("id") UUID id, @Param("errorCode") String errorCode,
             @Param("from") Status from, @Param("to") Status to);

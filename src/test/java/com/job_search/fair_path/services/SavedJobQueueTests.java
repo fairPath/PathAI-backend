@@ -37,6 +37,7 @@ class SavedJobQueueTests {
     @BeforeEach
     void setup() {
         user.setId(UUID.randomUUID());
+        user.setEnabled(true);
         resume.setId(UUID.randomUUID());
         resume.setUserId(user.getId());
         resume.setUpdatedAt(Instant.now());
@@ -51,7 +52,7 @@ class SavedJobQueueTests {
         saved.setComparisonAttempts(1);
         request.setJobId("job");
         request.setJobDescription("description");
-        when(users.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
+        when(users.findActiveByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
         when(jobs.findForUpdate(user.getId(), "job")).thenReturn(Optional.of(saved));
         when(resumes.findByUserId(user.getId())).thenReturn(Optional.of(resume));
         when(jobs.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));

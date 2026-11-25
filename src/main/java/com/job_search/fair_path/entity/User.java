@@ -44,6 +44,8 @@ public class User implements UserDetails {
     private LocalDateTime verificationCodeExpiresAt;
     @Column(name = "reset_token_hash")
     private String resetTokenHash;
+    @Column(name = "resume_upload_expires_at")
+    private java.time.Instant resumeUploadExpiresAt;
     @Column(name = "reset_expiration")
     private LocalDateTime resetTokenExpiresAt;
 
