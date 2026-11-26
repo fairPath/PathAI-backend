@@ -162,6 +162,8 @@ class StaleWorkSweeperTest extends AnalysisTestSupport {
             public String name() { return "failing"; }
             public Duration pendingStaleAfter() { return Duration.ofMinutes(10); }
             public Duration processingStaleAfter() { return Duration.ofMinutes(5); }
+            public int poolThreads() { return 8; }
+            public int poolQueueCapacity() { return 16; }
             public int sweep(Instant now) {
                 jdbc.update("UPDATE analysis SET status = 'FAILED', error_code = 'PARTIAL' WHERE id = ?", id);
                 throw new IllegalStateException("synthetic failure after the update");
@@ -195,7 +197,41 @@ class StaleWorkSweeperTest extends AnalysisTestSupport {
         org.mockito.Mockito.when(target.name()).thenReturn("synthetic");
         org.mockito.Mockito.when(target.pendingStaleAfter()).thenReturn(Duration.ofMinutes(10));
         org.mockito.Mockito.when(target.processingStaleAfter()).thenReturn(processing);
+        org.mockito.Mockito.when(target.poolThreads()).thenReturn(8);
+        org.mockito.Mockito.when(target.poolQueueCapacity()).thenReturn(16);
         return target;
+    }
+
+    private SweepTarget target(Duration pending, int threads, int capacity) {
+        var target = target(Duration.ofSeconds(300));
+        org.mockito.Mockito.when(target.pendingStaleAfter()).thenReturn(pending);
+        org.mockito.Mockito.when(target.poolThreads()).thenReturn(threads);
+        org.mockito.Mockito.when(target.poolQueueCapacity()).thenReturn(capacity);
+        return target;
+    }
+
+    @Test
+    void theDrainBootCheckRefusesAPendingThresholdThatDoesNotOutlastAFullQueue() {
+        var ai = new AiServiceProperties("http://unused", "token", Duration.ofSeconds(5),
+                Duration.ofSeconds(120), Duration.ofSeconds(5), 8192);
+        // ceil(16 / 8) = 2 rounds x (2 x 120 s + 5 s) = 490 s
+        assertThatThrownBy(() -> new StaleWorkSweeper(List.of(target(Duration.ofSeconds(490), 8, 16)), transactions, clock, ai))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("pending-stale-after");
+        new StaleWorkSweeper(List.of(target(Duration.ofSeconds(491), 8, 16)), transactions, clock, ai);
+        // A queue that is not a whole number of rounds rounds up: ceil(17 / 8) = 3 rounds = 735 s.
+        assertThatThrownBy(() -> new StaleWorkSweeper(List.of(target(Duration.ofSeconds(735), 8, 17)), transactions, clock, ai))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("pending-stale-after");
+        // No queue, nothing to wait for.
+        new StaleWorkSweeper(List.of(target(Duration.ofSeconds(1), 8, 0)), transactions, clock, ai);
+        // Every target is checked, so a failing second one still refuses the boot.
+        assertThatThrownBy(() -> new StaleWorkSweeper(
+                List.of(target(Duration.ofSeconds(491), 8, 16), target(Duration.ofSeconds(100), 8, 16)),
+                transactions, clock, ai)).isInstanceOf(IllegalStateException.class);
+        // The shipped defaults (16 / 8, 10 min) pass for both targets.
+        assertThat(analysisTarget.pendingStaleAfter()).isGreaterThan(Duration.ofSeconds(490));
+        assertThat(comparisonTarget.pendingStaleAfter()).isGreaterThan(Duration.ofSeconds(490));
+        assertThat(analysisTarget.poolQueueCapacity()).isEqualTo(16);
+        assertThat(comparisonTarget.poolThreads()).isEqualTo(8);
     }
 
     // --- AI outage scenarios ---

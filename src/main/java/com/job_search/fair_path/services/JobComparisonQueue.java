@@ -11,6 +11,8 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -88,6 +90,21 @@ public class JobComparisonQueue {
                 mapper.writeValueAsString(result.otherGaps()), task.resumeId(), Timestamp.from(task.resumeUpdatedAt()),
                 task.savedJobId(), task.requestId(), task.leaseToken(), task.resumeId(),
                 Timestamp.from(task.resumeUpdatedAt()), task.s3Key()) == 1;
+    }
+
+    /**
+     * Fails a row that was requested but never claimed (the pool's queue was full): guarded to PENDING
+     * with no lease, scoped to the request id, so a claimed or already-finished row is left alone.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW) // the caller is an after-commit listener
+    public boolean failPending(UUID requestId, ComparisonFailure failure) {
+        return jdbc.update("""
+                UPDATE saved_jobs SET comparison_status = 'FAILED',
+                    comparison_error_code = ?, comparison_retryable = ?,
+                    comparison_next_attempt_at = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE comparison_request_id = ? AND comparison_status = 'PENDING'
+                    AND comparison_lease_token IS NULL
+                """, failure.errorCode(), failure.retryable(), requestId) > 0;
     }
 
     public void fail(Task task, ComparisonFailure failure) {

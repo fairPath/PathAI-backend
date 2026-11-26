@@ -18,6 +18,12 @@ public interface SweepTarget {
 
     Duration processingStaleAfter();
 
+    /** Threads of the pool this target's work runs on. */
+    int poolThreads();
+
+    /** How many requests may wait in that pool's queue. */
+    int poolQueueCapacity();
+
     /** Times out every stale row as of {@code now}; returns how many. Runs in the runner's transaction. */
     int sweep(Instant now);
 }

@@ -68,7 +68,8 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
                 """);
         queue = new JobComparisonQueue(jdbc, new ObjectMapper());
         sweep = new ComparisonSweepTarget(jdbc, new com.job_search.fair_path.config.ComparisonProperties(
-                java.time.Duration.ofMinutes(10), java.time.Duration.ofSeconds(300)));
+                java.time.Duration.ofMinutes(10), java.time.Duration.ofSeconds(300)),
+                new com.job_search.fair_path.config.AiExecutionProperties(8, 8, 16, 16));
         id = UUID.randomUUID();
         requestId = UUID.randomUUID();
         insert(id, requestId);

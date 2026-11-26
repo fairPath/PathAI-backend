@@ -18,7 +18,9 @@ import com.job_search.fair_path.config.AiServiceProperties;
  * clocked by the injected Clock. Logs the target name and count only, never rows.
  *
  * Refuses to be built when a target's processing threshold does not outlast the
- * slowest legitimate AI call, so a running call is never swept.
+ * slowest legitimate AI call, so a running call is never swept, or when its
+ * pending threshold does not outlast the time to drain a full pool queue, so
+ * a request that is only waiting its turn is never swept.
  */
 @Component
 public class StaleWorkSweeper {
@@ -43,6 +45,14 @@ public class StaleWorkSweeper {
                 throw new IllegalStateException(target.name() + " processing-stale-after ("
                         + target.processingStaleAfter() + ") must exceed " + AiRequestExecution.CALLS_PER_REQUEST
                         + " x read-timeout + retry-delay (" + worstCase + ")");
+            }
+            // A full queue drains in ceil(capacity / threads) rounds of the slowest call; the last row waits that long.
+            Duration drain = worstCase.multipliedBy((target.poolQueueCapacity() + target.poolThreads() - 1) / target.poolThreads());
+            if (target.pendingStaleAfter().compareTo(drain) <= 0) {
+                throw new IllegalStateException(target.name() + " pending-stale-after ("
+                        + target.pendingStaleAfter() + ") must exceed the time to drain a full queue: ceil("
+                        + target.poolQueueCapacity() + " / " + target.poolThreads() + ") x " + worstCase
+                        + " (" + drain + ")");
             }
         }
     }
