@@ -45,8 +45,18 @@ class BoundedQueuesTest extends AnalysisTestSupport {
     private final AtomicInteger queuedRan = new AtomicInteger();
 
     @AfterEach
-    void releasePools() {
+    void releasePools() throws Exception {
+        // Runs even when an assertion failed: free the threads, then wait until both pools are idle so the
+        // next test class sharing this context never starts behind this one's blocked or queued work.
         release.countDown();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        for (var pool : java.util.List.of(analysisExecutor, comparisonExecutor)) {
+            while ((pool.getActiveCount() > 0 || pool.getQueueSize() > 0) && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertThat(pool.getActiveCount()).isZero();
+            assertThat(pool.getQueueSize()).isZero();
+        }
     }
 
     /** Every thread blocked and the whole queue filled, so the next submission is rejected. */
