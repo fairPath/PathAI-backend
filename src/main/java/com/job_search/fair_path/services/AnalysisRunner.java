@@ -7,6 +7,7 @@ import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -53,7 +54,22 @@ public class AnalysisRunner {
     // one that has already committed.
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onAnalysisRequested(AnalysisRequestedEvent event) {
-        execution.executeAnalysis(() -> run(event.request()));
+        UUID id = event.request().correlationId();
+        try {
+            execution.executeAnalysis(() -> run(event.request()));
+        } catch (TaskRejectedException busy) {
+            // The queue is full. The row is committed, so fail it for the next poll; never throw after commit.
+            log.warn("Analysis queue full, failing the row correlation_id={}", id);
+            try {
+                if (analysisRepository.failPending(id, AnalysisErrorCodes.AI_BUSY) == 0) {
+                    log.warn("Busy failure discarded, the row is no longer PENDING correlation_id={}", id);
+                }
+            } catch (RuntimeException e) {
+                // e.g. the database is down; the sweep times the row out later.
+                log.error("Could not mark the Analysis busy correlation_id={} error={}", id,
+                        e.getClass().getSimpleName());
+            }
+        }
     }
 
     /**

@@ -5,6 +5,7 @@ import java.time.Instant;
 
 import org.springframework.stereotype.Component;
 
+import com.job_search.fair_path.config.AiExecutionProperties;
 import com.job_search.fair_path.config.AnalysisProperties;
 import com.job_search.fair_path.repository.AnalysisRepository;
 
@@ -13,15 +14,20 @@ import com.job_search.fair_path.repository.AnalysisRepository;
 public class AnalysisSweepTarget implements SweepTarget {
     private final AnalysisRepository repository;
     private final AnalysisProperties properties;
+    private final AiExecutionProperties pool;
 
-    public AnalysisSweepTarget(AnalysisRepository repository, AnalysisProperties properties) {
+    public AnalysisSweepTarget(AnalysisRepository repository, AnalysisProperties properties,
+            AiExecutionProperties pool) {
         this.repository = repository;
         this.properties = properties;
+        this.pool = pool;
     }
 
     @Override public String name() { return "analysis"; }
     @Override public Duration pendingStaleAfter() { return properties.pendingStaleAfter(); }
     @Override public Duration processingStaleAfter() { return properties.processingStaleAfter(); }
+    @Override public int poolThreads() { return pool.analysisThreads(); }
+    @Override public int poolQueueCapacity() { return pool.analysisQueueCapacity(); }
 
     @Override
     public int sweep(Instant now) {

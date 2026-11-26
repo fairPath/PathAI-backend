@@ -8,6 +8,8 @@ package com.job_search.fair_path.services;
 public final class AnalysisErrorCodes {
 
     static final String INTERNAL_ERROR = "INTERNAL_ERROR";
+    /** Written by Spring when a pool's queue is full. Retryable, so deliberately not on the permanent list. */
+    public static final String AI_BUSY = "AI_BUSY";
     static final String ANALYSIS_TIMED_OUT = "ANALYSIS_TIMED_OUT";
 
     private AnalysisErrorCodes() {

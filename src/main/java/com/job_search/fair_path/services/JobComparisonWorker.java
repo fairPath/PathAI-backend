@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import java.util.UUID;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -26,7 +27,18 @@ public class JobComparisonWorker {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onComparisonRequested(ComparisonRequestedEvent event) {
-        execution.executeComparison(() -> processNext(event.requestId()));
+        try {
+            execution.executeComparison(() -> processNext(event.requestId()));
+        } catch (TaskRejectedException busy) {
+            // The queue is full. The row is committed, so fail it for the next poll; never throw after commit.
+            logger.warn("Comparison queue full, failing the row correlation_id={}", event.requestId());
+            try {
+                queue.failPending(event.requestId(), new ComparisonFailure(AnalysisErrorCodes.AI_BUSY, true));
+            } catch (RuntimeException error) {
+                // e.g. the database is down; the sweep times the row out later.
+                logger.error("Could not mark the comparison busy error_type={}", error.getClass().getSimpleName());
+            }
+        }
     }
 
     public void processNext() { processNext(null); }

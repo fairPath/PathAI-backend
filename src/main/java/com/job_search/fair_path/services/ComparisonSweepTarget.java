@@ -7,6 +7,7 @@ import java.time.Instant;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import com.job_search.fair_path.config.AiExecutionProperties;
 import com.job_search.fair_path.config.ComparisonProperties;
 
 /**
@@ -26,15 +27,19 @@ public class ComparisonSweepTarget implements SweepTarget {
 
     private final JdbcTemplate jdbc;
     private final ComparisonProperties properties;
+    private final AiExecutionProperties pool;
 
-    public ComparisonSweepTarget(JdbcTemplate jdbc, ComparisonProperties properties) {
+    public ComparisonSweepTarget(JdbcTemplate jdbc, ComparisonProperties properties, AiExecutionProperties pool) {
         this.jdbc = jdbc;
         this.properties = properties;
+        this.pool = pool;
     }
 
     @Override public String name() { return "comparison"; }
     @Override public Duration pendingStaleAfter() { return properties.pendingStaleAfter(); }
     @Override public Duration processingStaleAfter() { return properties.processingStaleAfter(); }
+    @Override public int poolThreads() { return pool.comparisonThreads(); }
+    @Override public int poolQueueCapacity() { return pool.comparisonQueueCapacity(); }
 
     @Override
     public int sweep(Instant now) {

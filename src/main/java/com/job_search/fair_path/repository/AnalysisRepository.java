@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.job_search.fair_path.dataTransferObject.analysis.ScoresDTO;
@@ -55,6 +56,25 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
     default int failProcessing(UUID id, String errorCode) {
         return markFailed(id, errorCode, Status.PROCESSING, Status.FAILED);
     }
+
+    /** PENDING → FAILED with an error code: the work was never started (e.g. the queue was full). */
+    default int failPending(UUID id, String errorCode) {
+        return markFailedInOwnTransaction(id, errorCode, Status.PENDING, Status.FAILED);
+    }
+
+    /**
+     * markFailed in a new transaction: the after-commit listener calls it on the request thread, where the
+     * request's own (already committed) transaction is still current and cannot take another write.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Analysis a set a.status = :to, a.errorCode = :errorCode
+            where a.id = :id and a.status = :from
+                and exists (select 1 from User u where u.id = a.userId and u.enabled = true)
+            """)
+    int markFailedInOwnTransaction(@Param("id") UUID id, @Param("errorCode") String errorCode,
+            @Param("from") Status from, @Param("to") Status to);
 
     @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)

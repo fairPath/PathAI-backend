@@ -86,4 +86,53 @@ class ComparisonSchedulingTest {
             assertThrows(org.springframework.beans.factory.BeanCreationException.class, context::refresh);
         }
     }
+
+    @Test
+    void aFullQueueRejectsTheNextSubmissionAndTheQueuedWorkStillRuns() throws Exception {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            TestPropertyValues.of("fairpath.ai-execution.analysis-threads=1",
+                "fairpath.ai-execution.analysis-queue-capacity=2").applyTo(context);
+            context.register(Config.class);
+            context.refresh();
+            var execution = context.getBean(AiRequestExecution.class);
+            var started = new CountDownLatch(1);
+            var release = new CountDownLatch(1);
+            var ran = new java.util.concurrent.atomic.AtomicInteger();
+            execution.executeAnalysis(() -> block(started, release, ConcurrentHashMap.newKeySet()));
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            try {
+                execution.executeAnalysis(ran::incrementAndGet);
+                execution.executeAnalysis(ran::incrementAndGet);
+                assertThrows(org.springframework.core.task.TaskRejectedException.class,
+                    () -> execution.executeAnalysis(ran::incrementAndGet));
+                // The other pool has its own queue (default 16).
+                execution.executeComparison(() -> {});
+            } finally { release.countDown(); }
+            var analysis = context.getBean("analysisExecutor", ThreadPoolTaskExecutor.class);
+            analysis.getThreadPoolExecutor().shutdown(); // lets the queued work finish
+            assertTrue(analysis.getThreadPoolExecutor().awaitTermination(5, TimeUnit.SECONDS));
+            assertEquals(2, ran.get());
+        }
+    }
+
+    @Test
+    void queueCapacityDefaultsToSixteenAndZeroMeansNoWaiting() {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            TestPropertyValues.of("fairpath.ai-execution.comparison-queue-capacity=0").applyTo(context);
+            context.register(Config.class);
+            context.refresh();
+            assertEquals(16, context.getBean("analysisExecutor", ThreadPoolTaskExecutor.class).getQueueCapacity());
+            assertEquals(0, context.getBean("comparisonExecutor", ThreadPoolTaskExecutor.class).getQueueCapacity());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"analysis", "comparison"})
+    void negativeQueueCapacityFailsStartup(String feature) {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            TestPropertyValues.of("fairpath.ai-execution." + feature + "-queue-capacity=-1").applyTo(context);
+            context.register(Config.class);
+            assertThrows(org.springframework.beans.factory.BeanCreationException.class, context::refresh);
+        }
+    }
 }
