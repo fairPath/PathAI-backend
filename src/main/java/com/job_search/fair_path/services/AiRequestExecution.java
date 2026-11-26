@@ -13,6 +13,10 @@ import com.job_search.fair_path.config.AiServiceProperties;
 @Component
 public class AiRequestExecution {
     private static final Logger log = LoggerFactory.getLogger(AiRequestExecution.class);
+
+    /** The original call plus the one automatic retry; the sweep's boot check uses the same count. */
+    public static final int CALLS_PER_REQUEST = 2;
+
     private final AiServiceProperties properties;
     public AiRequestExecution(AiServiceProperties properties) { this.properties = properties; }
 
@@ -21,9 +25,6 @@ public class AiRequestExecution {
 
     @Async("comparisonExecutor")
     public void executeComparison(Runnable task) { task.run(); }
-
-    /** The original call plus the one automatic retry; the sweep's boot check uses the same count. */
-    public static final int CALLS_PER_REQUEST = 2;
 
     public <T> T call(UUID correlationId, Supplier<T> request) {
         for (int call = 1;; call++) {

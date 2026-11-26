@@ -38,6 +38,41 @@ class AiExecutionParityTest {
     }
 
     @org.junit.jupiter.api.Test
+    void callReturnsOnTheFirstSuccessAndNeverRetriesAnythingButAnUnreachableService() {
+        var execution = new AiRequestExecution(new AiServiceProperties("http://unused", "token",
+            Duration.ofSeconds(5), Duration.ofSeconds(120), Duration.ZERO, 8192));
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        assertEquals("ok", execution.call(UUID.randomUUID(), () -> { calls.incrementAndGet(); return "ok"; }));
+        assertEquals(1, calls.get());
+
+        calls.set(0);
+        var other = new IllegalArgumentException("synthetic");
+        assertSame(other, assertThrows(IllegalArgumentException.class, () -> execution.call(UUID.randomUUID(), () -> {
+            calls.incrementAndGet();
+            throw other;
+        })));
+        assertEquals(1, calls.get());
+
+        // Unreachable then success: one retry.
+        calls.set(0);
+        assertEquals("ok", execution.call(UUID.randomUUID(), () -> {
+            if (calls.incrementAndGet() == 1) throw new ResourceAccessException("synthetic", new ConnectException());
+            return "ok";
+        }));
+        assertEquals(2, calls.get());
+
+        // Unreachable twice: the SECOND failure is thrown, and there is no third call.
+        calls.set(0);
+        var second = new ResourceAccessException("second", new ConnectException());
+        var thrown = assertThrows(ResourceAccessException.class, () -> execution.call(UUID.randomUUID(), () -> {
+            if (calls.incrementAndGet() == 1) throw new ResourceAccessException("first", new ConnectException());
+            throw second;
+        }));
+        assertSame(second, thrown);
+        assertEquals(2, calls.get());
+    }
+
+    @org.junit.jupiter.api.Test
     void interruptedRetryPreservesInterruptAndDoesNotSendSecondRequest() {
         var execution = new AiRequestExecution(new AiServiceProperties("http://unused", "token",
             Duration.ofSeconds(5), Duration.ofSeconds(120), Duration.ofSeconds(5), 8192));

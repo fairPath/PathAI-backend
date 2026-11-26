@@ -13,6 +13,12 @@ import com.job_search.fair_path.config.ComparisonProperties;
  * PENDING comparisons whose lease expired (the lease is the processing
  * threshold), and PENDING ones with no lease that are older than the pending
  * threshold, measured from updated_at: their after-commit event was lost.
+ *
+ * Time note: the lease and updated_at are written by the database
+ * (CURRENT_TIMESTAMP), while this sweep compares them with the app Clock (so tests
+ * can move it) and stamps updated_at from it. Production's Clock is the system
+ * UTC clock, so the only difference is app/database clock skew, which is seconds
+ * against thresholds of minutes.
  */
 @Component
 public class ComparisonSweepTarget implements SweepTarget {
