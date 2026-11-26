@@ -72,6 +72,7 @@ class AccountDeletionTest extends IntegrationTestBase {
     @Autowired AccountDeletionQueue queue;
     @Autowired ResumeService resumeService;
     @Autowired JdbcTemplate jdbc;
+    @Autowired com.job_search.fair_path.services.StaleWorkSweeper sweeper;
     @MockitoBean EmailService mail;
 
     private User owner;
@@ -176,6 +177,66 @@ class AccountDeletionTest extends IntegrationTestBase {
         verify(mail).sendDeletionStarted(EMAIL);
     }
 
+    @Test
+    void aDeletionBlockedOnS3DoesNotDelayTheSweep() throws Exception {
+        requestDeletion();
+        var inS3 = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        when(s3Client.listObjectsV2(org.mockito.ArgumentMatchers.<Consumer<ListObjectsV2Request.Builder>>any()))
+                .thenAnswer(call -> {
+                    inS3.countDown();
+                    release.await(30, java.util.concurrent.TimeUnit.SECONDS);
+                    return objectPage(List.of(), null);
+                });
+        var deleter = java.util.concurrent.CompletableFuture.runAsync(worker::run);
+        try {
+            assertThat(inS3.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            // The deleter holds its thread inside S3; the sweep (a different scheduler thread in production) is unaffected.
+            var sweep = java.util.concurrent.CompletableFuture.runAsync(sweeper::sweep);
+            sweep.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(deleter).isNotDone();
+        } finally {
+            release.countDown();
+        }
+        deleter.get(10, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    @Test
+    void anS3OutageLeavesEveryRequestDueThenRecoveryFinishesAllWithOneEmailEach() throws Exception {
+        var owners = new ArrayList<User>();
+        owners.add(owner);
+        for (int i = 0; i < 2; i++) {
+            var other = new User("Test", "Owner", "test-owner-" + i, "deletion-" + i + "@example.invalid",
+                    passwords.encode(PASSWORD));
+            other.setEnabled(true);
+            owners.add(users.saveAndFlush(other));
+        }
+        var tokens = new ArrayList<String>();
+        for (User each : owners) tokens.add(requestDeletion(each));
+
+        var unavailable = software.amazon.awssdk.services.s3.model.S3Exception.builder()
+                .awsErrorDetails(software.amazon.awssdk.awscore.exception.AwsErrorDetails.builder()
+                        .errorCode("ServiceUnavailable").build()).build();
+        when(s3Client.listObjectsV2(org.mockito.ArgumentMatchers.<Consumer<ListObjectsV2Request.Builder>>any()))
+                .thenThrow(unavailable);
+        for (int i = 0; i < owners.size(); i++) worker.run();
+
+        for (User each : owners) {
+            var failure = jdbc.queryForMap("SELECT attempts, last_error FROM account_deletion WHERE owner_id = ?",
+                    each.getId());
+            assertThat(failure).containsEntry("attempts", 1).containsEntry("last_error", "ServiceUnavailable");
+        }
+        tokens.forEach(token -> assertThat(deletion.status(token)).isEqualTo("requested"));
+
+        org.mockito.Mockito.doReturn(objectPage(List.of(), null)).when(s3Client)
+                .listObjectsV2(org.mockito.ArgumentMatchers.<Consumer<ListObjectsV2Request.Builder>>any());
+        clock.advance(Duration.ofSeconds(31));
+        for (int i = 0; i < owners.size(); i++) worker.run();
+
+        tokens.forEach(token -> assertThat(deletion.status(token)).isEqualTo("missing"));
+        for (User each : owners) verify(mail).sendDeletionStarted(each.getEmail());
+    }
+
     private ListObjectsV2Response objectPage(List<String> keys, String nextToken) {
         return ListObjectsV2Response.builder().nextContinuationToken(nextToken)
                 .contents(keys.stream().map(key -> S3Object.builder().key(key).build()).toList()).build();
@@ -265,7 +326,11 @@ class AccountDeletionTest extends IntegrationTestBase {
     }
 
     private String requestDeletion() throws Exception {
-        var result = mvc.perform(post("/account/deletion").header("Authorization", bearer())
+        return requestDeletion(owner);
+    }
+
+    private String requestDeletion(User account) throws Exception {
+        var result = mvc.perform(post("/account/deletion").header("Authorization", "Bearer " + jwt.generateToken(account))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"password\":\"synthetic-password\"}"))
                 .andExpect(status().isAccepted()).andReturn();
         return json.readTree(result.getResponse().getContentAsString()).get("token").asText();
