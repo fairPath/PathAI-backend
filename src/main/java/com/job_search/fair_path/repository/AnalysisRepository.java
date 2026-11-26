@@ -2,6 +2,7 @@ package com.job_search.fair_path.repository;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -90,4 +91,19 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
             """)
     int markFailed(@Param("id") UUID id, @Param("errorCode") String errorCode,
             @Param("from") Status from, @Param("to") Status to);
+
+    /**
+     * The sweep's guarded update: PENDING rows created before {@code pendingBefore} and
+     * PROCESSING rows started before {@code processingBefore} become FAILED with
+     * {@code errorCode}. Returns the ids swept.
+     */
+    @Transactional
+    @Query(value = """
+            UPDATE analysis SET status = 'FAILED', error_code = :errorCode
+            WHERE (status = 'PENDING' AND created_at <= :pendingBefore)
+                OR (status = 'PROCESSING' AND started_at <= :processingBefore)
+            RETURNING id
+            """, nativeQuery = true)
+    List<UUID> timeOutStale(@Param("errorCode") String errorCode, @Param("pendingBefore") Instant pendingBefore,
+            @Param("processingBefore") Instant processingBefore);
 }

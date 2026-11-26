@@ -2,6 +2,7 @@ package com.job_search.fair_path.services;
 
 import com.job_search.fair_path.exceptions.ComparisonFailure;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.sql.Timestamp;
 import java.util.Optional;
@@ -19,8 +20,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class JobComparisonQueue {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
-    @Value("${fairpath.comparison-worker.lease-seconds:300}")
-    private int leaseSeconds = 300;
+    /** The lease length: a claimed row still PENDING after it is swept as stuck. */
+    @Value("${fairpath.comparison.processing-stale-after:300s}")
+    private Duration processingStaleAfter = Duration.ofSeconds(300);
 
     public record Task(UUID savedJobId, UUID requestId, UUID leaseToken, String jobId,
             String s3Key, String description, int attempt, UUID resumeId, Instant resumeUpdatedAt) {}
@@ -33,13 +35,6 @@ public class JobComparisonQueue {
     public Optional<Task> claim() { return claim(null); }
 
     public Optional<Task> claim(UUID requestId) {
-        jdbc.update("""
-                UPDATE saved_jobs SET comparison_status = 'FAILED', comparison_error_code = 'COMPARISON_TIMED_OUT',
-                    comparison_retryable = TRUE, comparison_lease_token = NULL,
-                    comparison_lease_until = NULL, updated_at = CURRENT_TIMESTAMP
-                WHERE comparison_status = 'PENDING'
-                    AND comparison_lease_until <= CURRENT_TIMESTAMP
-                """);
         return jdbc.query("""
                 UPDATE saved_jobs AS job SET
                     comparison_request_id = COALESCE(job.comparison_request_id, ?),
@@ -69,7 +64,7 @@ public class JobComparisonQueue {
                         rs.getObject("comparison_lease_token", UUID.class), rs.getString("job_id"),
                         rs.getString("s3_key"), rs.getString("description"), rs.getInt("comparison_attempts"),
                         rs.getObject("resume_id", UUID.class), version == null ? null : version.toInstant());
-                }, UUID.randomUUID(), UUID.randomUUID(), leaseSeconds, requestId, requestId).stream().findFirst();
+                }, UUID.randomUUID(), UUID.randomUUID(), processingStaleAfter.toSeconds(), requestId, requestId).stream().findFirst();
     }
 
     public boolean complete(Task task, JobComparisonClient.Result result) throws JsonProcessingException {

@@ -26,6 +26,7 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
     private JdbcTemplate admin;
     private JdbcTemplate jdbc;
     private JobComparisonQueue queue;
+    private ComparisonSweepTarget sweep;
     private String schema;
     private UUID id;
     private UUID requestId;
@@ -66,6 +67,8 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
                 )
                 """);
         queue = new JobComparisonQueue(jdbc, new ObjectMapper());
+        sweep = new ComparisonSweepTarget(jdbc, new com.job_search.fair_path.config.ComparisonProperties(
+                java.time.Duration.ofMinutes(10), java.time.Duration.ofSeconds(300)));
         id = UUID.randomUUID();
         requestId = UUID.randomUUID();
         insert(id, requestId);
@@ -89,6 +92,7 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
         var first = queue.claim().orElseThrow();
         assertTrue(queue.claim().isEmpty());
         jdbc.update("UPDATE saved_jobs SET comparison_lease_until = CURRENT_TIMESTAMP - INTERVAL '1 second'");
+        assertEquals(1, sweep.sweep(java.time.Instant.now()));
         assertTrue(queue.claim().isEmpty());
         assertEquals("FAILED", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs", String.class));
         assertFalse(queue.complete(first, result));
@@ -164,6 +168,7 @@ class PostgresJobComparisonQueueTests extends IntegrationTestBase {
     void processDeathOnLastAttemptEventuallyBecomesFailed() {
         assertEquals(1, queue.claim().orElseThrow().attempt());
         jdbc.update("UPDATE saved_jobs SET comparison_lease_until = CURRENT_TIMESTAMP - INTERVAL '1 second'");
+        assertEquals(1, sweep.sweep(java.time.Instant.now()));
         assertTrue(queue.claim().isEmpty());
         assertEquals("FAILED", jdbc.queryForObject("SELECT comparison_status FROM saved_jobs", String.class));
     }
