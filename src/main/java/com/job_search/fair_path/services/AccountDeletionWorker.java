@@ -3,7 +3,6 @@ package com.job_search.fair_path.services;
 import java.time.Clock;
 import java.time.Duration;
 
-import jakarta.mail.MessagingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,7 +46,8 @@ public class AccountDeletionWorker {
     private void process(AccountDeletionQueue.Task task) {
         String failureCode;
         try {
-            queue.beginNotification(task, clock.instant()).ifPresent(this::sendNotification);
+            queue.beginNotification(task, clock.instant()).ifPresent(address ->
+                    EmailDelivery.attempt("Account deletion start", () -> mail.sendDeletionStarted(address)));
             failureCode = deleteResumeObjects(task);
         } catch (S3Exception failure) {
             var details = failure.awsErrorDetails();
@@ -97,14 +97,6 @@ public class AccountDeletionWorker {
     private boolean renew(AccountDeletionQueue.Task task) {
         var now = clock.instant();
         return queue.renew(task, now, now.plus(lease));
-    }
-
-    private void sendNotification(String email) {
-        try {
-            mail.sendDeletionStarted(email);
-        } catch (MessagingException | RuntimeException failure) {
-            log.warn("Account deletion start email failed");
-        }
     }
 
     private void retry(AccountDeletionQueue.Task task, String code) {
