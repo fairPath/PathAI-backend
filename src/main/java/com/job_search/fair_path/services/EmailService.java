@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
 
 @Service
 public class EmailService {
@@ -16,6 +17,24 @@ public class EmailService {
 
     @org.springframework.beans.factory.annotation.Value("${spring.mail.username}")
     private String sender;
+
+    public void sendDailyJobMatch(String to, String name, String settingsUrl) throws MessagingException {
+        MimeMessage message = emailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
+        helper.setFrom(sender);
+        helper.setTo(to);
+        helper.setSubject("[Demo] Daily Job Match");
+        helper.setText("""
+                <p>Hi %s,</p>
+                <p>Here are two sample jobs for your FairPath demo. These listings are examples and were not selected for you.</p>
+                <ul>
+                    <li>Backend Engineer at Example Software</li>
+                    <li>Data Analyst at Example Insights</li>
+                </ul>
+                <p><a href="%s">Manage Daily Job Match</a></p>
+                """.formatted(HtmlUtils.htmlEscape(name), HtmlUtils.htmlEscape(settingsUrl)), true);
+        emailSender.send(message);
+    }
 
     public void sendDeletionStarted(String to) throws MessagingException {
         MimeMessage message = emailSender.createMimeMessage();
