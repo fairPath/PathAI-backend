@@ -9,5 +9,9 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 @ConfigurationProperties("fairpath.analysis")
 public record AnalysisProperties(
         /** Minimum wait after a completed Analysis before the next one may start. */
-        @DefaultValue("24h") Duration cooldown) {
+        @DefaultValue("24h") Duration cooldown,
+        /** A PENDING Analysis this old (from created_at) never started: the sweep times it out. */
+        @DefaultValue("10m") Duration pendingStaleAfter,
+        /** A PROCESSING Analysis this old (from started_at) is stuck: the sweep times it out. */
+        @DefaultValue("5m") Duration processingStaleAfter) {
 }

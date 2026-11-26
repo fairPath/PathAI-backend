@@ -13,6 +13,10 @@ import com.job_search.fair_path.config.AiServiceProperties;
 @Component
 public class AiRequestExecution {
     private static final Logger log = LoggerFactory.getLogger(AiRequestExecution.class);
+
+    /** The original call plus the one automatic retry; the sweep's boot check uses the same count. */
+    public static final int CALLS_PER_REQUEST = 2;
+
     private final AiServiceProperties properties;
     public AiRequestExecution(AiServiceProperties properties) { this.properties = properties; }
 
@@ -23,19 +27,20 @@ public class AiRequestExecution {
     public void executeComparison(Runnable task) { task.run(); }
 
     public <T> T call(UUID correlationId, Supplier<T> request) {
-        try {
-            return request.get();
-        } catch (RuntimeException first) {
-            if (!AiServiceErrors.isUnreachable(first)) throw first;
-            Duration delay = properties.retryDelay();
-            log.warn("AI service unreachable, retrying once in {} correlation_id={}", delay, correlationId);
+        for (int call = 1;; call++) {
             try {
-                if (!delay.isZero()) Thread.sleep(delay.toMillis());
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                throw first;
+                return request.get();
+            } catch (RuntimeException failure) {
+                if (call >= CALLS_PER_REQUEST || !AiServiceErrors.isUnreachable(failure)) throw failure;
+                Duration delay = properties.retryDelay();
+                log.warn("AI service unreachable, retrying once in {} correlation_id={}", delay, correlationId);
+                try {
+                    if (!delay.isZero()) Thread.sleep(delay.toMillis());
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw failure;
+                }
             }
-            return request.get();
         }
     }
 }

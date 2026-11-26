@@ -1,11 +1,9 @@
 package com.job_search.fair_path.config;
 
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import com.job_search.fair_path.services.AccountDeletionWorker;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 @Configuration
 @ConditionalOnProperty(
@@ -18,16 +16,8 @@ public class AccountDeletionConfiguration {
     }
 
     @Scheduled(fixedDelayString = "${fairpath.account-deletion.poll-interval}",
-            scheduler = "accountDeletionScheduler")
+            scheduler = MaintenanceConfig.SCHEDULER)
     public void poll() {
         worker.run();
-    }
-
-    @Bean
-    ThreadPoolTaskScheduler accountDeletionScheduler() {
-        var scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(1);
-        scheduler.setThreadNamePrefix("account-deletion-");
-        return scheduler;
     }
 }
